@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slice3d"
+version = "0.1.0"
+description = "Slice-based reversible data hiding in 3D models"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "ketan61" }]
+keywords = ["reversible-data-hiding", "steganography", "3d-models", "mesh", "watermarking"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Multimedia :: Graphics :: 3D Modeling",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["slice3d*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
