@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Optional
 
 from slice3d.embed import capacity_bytes, embed
+from slice3d.extract import extract
 from slice3d.mesh import Mesh
 
 
@@ -79,21 +80,56 @@ def _prompt_nonempty(label: str) -> str:
         print("  this cannot be empty")
 
 
+def _prompt_choice(label: str, choices: dict) -> str:
+    """Prompt until the user picks one of the numbered ``choices`` keys."""
+    keys = list(choices)
+    for i, key in enumerate(keys, 1):
+        print(f"  {i}. {choices[key]}")
+    while True:
+        raw = input(f"{label}: ").strip()
+        if raw in keys:
+            return raw
+        if raw.isdigit() and 1 <= int(raw) <= len(keys):
+            return keys[int(raw) - 1]
+        print(f"  please choose 1-{len(keys)}")
+
+
+def _ask_input_model(kind: str) -> Optional[str]:
+    """Pick an existing .obj via dialog (fallback: typed path). None on abort."""
+    path = _pick_open_file(f"Choose the {kind} 3D model (.obj)")
+    if path is None:
+        path = input(f"Path to {kind} .obj model: ").strip().strip('"')
+    if not path:
+        print("No model chosen. Aborting.")
+        return None
+    if not Path(path).is_file():
+        print(f"error: file not found: {path}")
+        return None
+    return path
+
+
 # -- wizard -----------------------------------------------------------------
 
 def run_wizard() -> int:
+    """Top-level menu: choose whether to hide or extract, then dispatch."""
+    print("=== slice3d :: data hiding in 3D models ===\n")
+    action = _prompt_choice(
+        "Choose an action",
+        {"hide": "Hide a message in a 3D model", "extract": "Extract a hidden message"},
+    )
+    print()
+    if action == "extract":
+        return run_extract_wizard()
+    return run_embed_wizard()
+
+
+def run_embed_wizard() -> int:
     """Drive an interactive embed session. Returns a process exit code."""
-    print("=== slice3d :: hide a message in a 3D model ===\n")
+    print("--- Hide a message ---\n")
 
     # 1. choose the cover model via file explorer (fallback: typed path)
-    cover = _pick_open_file("Choose the cover 3D model (.obj)")
+    cover = _ask_input_model("cover")
     if cover is None:
-        cover = input("Path to cover .obj model: ").strip().strip('"')
-    if not cover:
-        print("No cover model chosen. Aborting.")
-        return 1
-    if not Path(cover).is_file():
-        print(f"error: file not found: {cover}")
         return 1
     print(f"cover model : {cover}")
 
@@ -136,4 +172,45 @@ def run_wizard() -> int:
     print(f"  key    = {key}")
     print(f"  slices = {num_slices}")
     print(f"\n  slice3d extract -i \"{output}\" -k \"{key}\" -n {num_slices}")
+    return 0
+
+
+def run_extract_wizard() -> int:
+    """Drive an interactive extract session. Returns a process exit code."""
+    print("--- Extract a hidden message ---\n")
+
+    # 1. choose the stego model
+    stego = _ask_input_model("stego")
+    if stego is None:
+        return 1
+    print(f"stego model : {stego}")
+
+    mesh = Mesh.load(stego)
+
+    # 2. the key and slice count used at embedding time
+    key = _prompt_nonempty("Secret key")
+    num_slices = _prompt_int("Number of slices")
+
+    # 3. recover the payload (a wrong key/slice count is reported cleanly)
+    try:
+        data = extract(mesh, key=key, num_slices=num_slices)
+    except ValueError as exc:
+        print(f"\nCould not extract: {exc}")
+        return 1
+
+    # 4. show it, and offer to save the raw bytes to a file
+    try:
+        text = data.decode("utf-8")
+        print(f"\nRecovered message:\n  {text}")
+    except UnicodeDecodeError:
+        print(f"\nRecovered {len(data)} bytes of binary data (not UTF-8 text).")
+
+    if _prompt_choice("Save recovered data to a file?", {"no": "No", "yes": "Yes"}) == "yes":
+        out = _pick_save_file("Save recovered data as...", "recovered.txt")
+        if out is None:
+            out = input("Path to save recovered data: ").strip().strip('"')
+        if out:
+            with open(out, "wb") as fh:
+                fh.write(data)
+            print(f"saved {len(data)} bytes -> {out}")
     return 0

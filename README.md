@@ -50,9 +50,10 @@ Working end-to-end pipeline:
 
 ### Interactive wizard (easiest)
 
-Run with no arguments (or `slice3d wizard`) to be guided through it: a file-explorer
-dialog opens to choose the cover `.obj`, then you are prompted for the number of
-slices, the secret message and the key.
+Run with no arguments (or `slice3d wizard`) to be guided through it. First choose
+whether to **hide** or **extract**; a file-explorer dialog then opens to pick the
+`.obj` model and you are prompted for the slice count, key, and (when hiding) the
+secret message. Extraction prints the recovered message and can save it to a file.
 
 ```bash
 slice3d            # or: python -m slice3d.cli wizard
