@@ -48,6 +48,18 @@ Working end-to-end pipeline:
 
 ## Usage
 
+### Interactive wizard (easiest)
+
+Run with no arguments (or `slice3d wizard`) to be guided through it: a file-explorer
+dialog opens to choose the cover `.obj`, then you are prompted for the number of
+slices, the secret message and the key.
+
+```bash
+slice3d            # or: python -m slice3d.cli wizard
+```
+
+### Command line
+
 ```bash
 # Generate a sample mesh to play with (the tiny example cube is too small to carry a payload)
 python examples/make_sample.py sphere.obj --stacks 40 --slices 40

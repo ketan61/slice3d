@@ -61,9 +61,21 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_wizard(args: argparse.Namespace) -> int:
+    from slice3d.interactive import run_wizard
+
+    return run_wizard()
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="slice3d", description=__doc__)
-    sub = parser.add_subparsers(dest="command", required=True)
+    # Running "slice3d" with no subcommand launches the interactive wizard.
+    parser.set_defaults(func=_cmd_wizard)
+    sub = parser.add_subparsers(dest="command")
+
+    sub.add_parser(
+        "wizard", help="interactive guided embedding (choose file, slices, message)"
+    ).set_defaults(func=_cmd_wizard)
 
     p_info = sub.add_parser("info", help="show mesh capacity and slice stats")
     p_info.add_argument("-i", "--input", required=True)
@@ -101,6 +113,9 @@ def main(argv: list[str] | None = None) -> int:
         # unexpected exceptions still propagate for debugging.
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    except (KeyboardInterrupt, EOFError):
+        print("\ncancelled.", file=sys.stderr)
+        return 130
 
 
 if __name__ == "__main__":  # pragma: no cover
