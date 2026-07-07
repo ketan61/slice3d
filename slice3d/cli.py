@@ -93,7 +93,14 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except (ValueError, OSError) as exc:
+        # Expected, user-facing failures (wrong key/slice count, oversized
+        # payload, missing files). Report cleanly instead of dumping a traceback;
+        # unexpected exceptions still propagate for debugging.
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":  # pragma: no cover
