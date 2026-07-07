@@ -38,13 +38,43 @@ Three invariants keep the scheme correct and blind:
 
 ## Status
 
-Early scaffold. Implemented so far:
+Working end-to-end pipeline:
 
 - [x] Order/precision-preserving OBJ mesh I/O (`slice3d.mesh`)
 - [x] Axis slicing & slice assignment (`slice3d.slicer`)
-- [ ] Key-driven embedding path (`slice3d.keystream`)
-- [ ] Reversible embed / extract (`slice3d.embed`, `slice3d.extract`)
-- [ ] Command-line interface (`slice3d.cli`)
+- [x] Key-driven embedding path (`slice3d.keystream`)
+- [x] Reversible embed / extract (`slice3d.embed`, `slice3d.extract`)
+- [x] Command-line interface (`slice3d.cli`)
+
+## Usage
+
+```bash
+# Generate a sample mesh to play with (the tiny example cube is too small to carry a payload)
+python examples/make_sample.py sphere.obj --stacks 40 --slices 40
+
+# Inspect capacity and slice distribution
+python -m slice3d.cli info -i sphere.obj -n 256
+
+# Hide a message (sender)
+python -m slice3d.cli embed -i sphere.obj -o stego.obj -k s3cret -n 256 \
+    -m "reversible data hiding works!"
+
+# Recover it (receiver) — needs only the same key and slice count
+python -m slice3d.cli extract -i stego.obj -k s3cret -n 256
+```
+
+Or from Python:
+
+```python
+from slice3d import Mesh, embed, extract
+
+mesh = Mesh.load("sphere.obj")
+embed(mesh, b"secret bytes", key="s3cret", num_slices=256)
+mesh.save("stego.obj")
+
+received = Mesh.load("stego.obj")
+assert extract(received, key="s3cret", num_slices=256) == b"secret bytes"
+```
 
 ## Development
 
