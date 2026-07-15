@@ -118,8 +118,8 @@ def test_extract_wizard_recovers_message(tmp_path, monkeypatch, capsys):
     stego = _make_stego(tmp_path, monkeypatch, "find me", "pw", 48)
 
     monkeypatch.setattr(interactive, "_pick_open_file", lambda title: str(stego))
-    # key, slices, then "no" to the save prompt.
-    _feed_inputs(monkeypatch, ["pw", "48", "no"])
+    # key, slices, then "no" to save, "no" to the decoded-object plot.
+    _feed_inputs(monkeypatch, ["pw", "48", "no", "no"])
 
     assert run_extract_wizard() == 0
     assert "find me" in capsys.readouterr().out
@@ -133,7 +133,7 @@ def test_extract_wizard_can_save_to_file(tmp_path, monkeypatch):
     monkeypatch.setattr(
         interactive, "_pick_save_file", lambda title, initialfile: str(recovered)
     )
-    _feed_inputs(monkeypatch, ["pw", "48", "yes"])
+    _feed_inputs(monkeypatch, ["pw", "48", "yes", "no"])
 
     assert run_extract_wizard() == 0
     assert recovered.read_bytes() == b"save me"

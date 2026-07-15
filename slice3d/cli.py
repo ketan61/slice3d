@@ -58,6 +58,20 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     else:
         sys.stdout.buffer.write(data)
         sys.stdout.buffer.write(b"\n")
+
+    if args.decoded or args.show_decoded:
+        from slice3d.visualize import render_decoded
+
+        render_decoded(
+            mesh,
+            key=args.key,
+            num_slices=args.slices,
+            payload_bytes=len(data),
+            out=args.decoded,
+            show=args.show_decoded or not args.decoded,
+        )
+        if args.decoded:
+            print(f"saved decoded-object visualisation -> {args.decoded}")
     return 0
 
 
@@ -125,6 +139,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_extract.add_argument("-k", "--key", required=True)
     p_extract.add_argument("-n", "--slices", type=int, required=True)
     p_extract.add_argument("-o", "--output", help="write bytes here (else stdout)")
+    p_extract.add_argument(
+        "--decoded", metavar="PNG",
+        help="save a 'decoded object' figure (vertices the message was read from)",
+    )
+    p_extract.add_argument(
+        "--show-decoded", action="store_true",
+        help="open the decoded-object figure in an interactive window",
+    )
     p_extract.set_defaults(func=_cmd_extract)
 
     p_viz = sub.add_parser(

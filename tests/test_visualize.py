@@ -1,10 +1,14 @@
 import math
 
+import matplotlib
+
+matplotlib.use("Agg")  # headless rendering for tests
+
 from slice3d.codec import HEADER_BITS
 from slice3d.embed import embed
 from slice3d.extract import extract
 from slice3d.mesh import Mesh
-from slice3d.visualize import carrier_indices, payload_bits
+from slice3d.visualize import carrier_indices, payload_bits, render_decoded, render_roi
 
 
 def make_mesh(n):
@@ -51,3 +55,17 @@ def test_carrier_indices_match_the_actual_embedding_path():
     assert changed.issubset(roi)
     # And the payload still round-trips, confirming the path is the real one.
     assert extract(cover, key=key, num_slices=slices) == data
+
+
+def test_render_roi_saves_png(tmp_path):
+    mesh = make_mesh(500)
+    out = tmp_path / "roi.png"
+    render_roi(mesh, key="k", num_slices=32, payload_bytes=10, out=str(out))
+    assert out.exists() and out.stat().st_size > 0
+
+
+def test_render_decoded_saves_png(tmp_path):
+    mesh = make_mesh(500)
+    out = tmp_path / "decoded.png"
+    render_decoded(mesh, key="k", num_slices=32, payload_bytes=10, out=str(out))
+    assert out.exists() and out.stat().st_size > 0

@@ -74,6 +74,9 @@ python -m slice3d.cli embed -i sphere.obj -o stego.obj -k s3cret -n 256 \
 
 # Recover it (receiver) — needs only the same key and slice count
 python -m slice3d.cli extract -i stego.obj -k s3cret -n 256
+
+# Recover it AND show the "decoded object" (which vertices it was read from)
+python -m slice3d.cli extract -i stego.obj -k s3cret -n 256 --decoded decoded.png
 ```
 
 ### Visualise the embedding ROI

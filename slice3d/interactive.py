@@ -232,4 +232,24 @@ def run_extract_wizard() -> int:
             with open(out, "wb") as fh:
                 fh.write(data)
             print(f"saved {len(data)} bytes -> {out}")
+
+    # 5. optionally show the decoded object (where the message was read from)
+    if _prompt_choice(
+        "Show the decoded object (where the message was read from)?",
+        {"no": "No", "yes": "Yes"},
+    ) == "yes":
+        _show_decoded(mesh, key, num_slices, len(data))
     return 0
+
+
+def _show_decoded(mesh: Mesh, key: str, num_slices: int, payload_bytes: int) -> None:
+    """Open the decoded-object plot; degrade gracefully without matplotlib."""
+    try:
+        from slice3d.visualize import render_decoded
+    except Exception:
+        print('  (install visualisation with: pip install "slice3d[viz]")')
+        return
+    try:
+        render_decoded(mesh, key, num_slices, payload_bytes, show=True)
+    except RuntimeError as exc:
+        print(f"  {exc}")
