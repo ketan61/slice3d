@@ -4,7 +4,7 @@ from slice3d.cli import main
 
 
 def _write_sphere(path, stacks=20, slices=20):
-    """A mesh large enough to carry a small payload."""
+    """A UV-sphere mesh (with faces) large enough to carry a small payload."""
     verts = []
     for i in range(stacks + 1):
         phi = math.pi * i / stacks
@@ -17,9 +17,18 @@ def _write_sphere(path, stacks=20, slices=20):
                     math.cos(phi),
                 )
             )
+
+    def vid(i, j):
+        return i * slices + (j % slices) + 1  # OBJ is 1-indexed
+
     with open(path, "w", encoding="utf-8") as fh:
         for x, y, z in verts:
             fh.write(f"v {x:.6f} {y:.6f} {z:.6f}\n")
+        for i in range(stacks):
+            for j in range(slices):
+                fh.write(
+                    f"f {vid(i, j)} {vid(i, j + 1)} {vid(i + 1, j + 1)} {vid(i + 1, j)}\n"
+                )
 
 
 def test_cli_embed_extract_roundtrip(tmp_path, capsysbinary):

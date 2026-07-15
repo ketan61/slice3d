@@ -11,9 +11,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from slice3d.embed import capacity_bytes, embed
-from slice3d.extract import extract
 from slice3d.mesh import Mesh
+from slice3d.reversible import capacity_bytes, embed, extract
 
 
 # -- file dialogs (isolated so tests can monkeypatch them) ------------------
@@ -136,10 +135,14 @@ def run_embed_wizard() -> int:
     mesh = Mesh.load(cover)
     max_bytes = capacity_bytes(mesh)
     print(f"vertices    : {len(mesh)}")
+    print(f"faces       : {len(mesh.faces)}")
     print(f"capacity    : {max_bytes} bytes\n")
 
     if max_bytes <= 0:
-        print("error: this model is too small to hide any data. Pick a denser mesh.")
+        print(
+            "error: no capacity. The reversible scheme needs mesh connectivity "
+            "(faces); pick a denser model that includes faces."
+        )
         return 1
 
     # 2. number of slices
@@ -210,7 +213,7 @@ def run_extract_wizard() -> int:
     key = _prompt_nonempty("Secret key")
     num_slices = _prompt_int("Number of slices")
 
-    # 3. recover the payload (a wrong key/slice count is reported cleanly)
+    # 3. recover the payload; extract() also restores the cover in place.
     try:
         data = extract(mesh, key=key, num_slices=num_slices)
     except ValueError as exc:
@@ -233,23 +236,35 @@ def run_extract_wizard() -> int:
                 fh.write(data)
             print(f"saved {len(data)} bytes -> {out}")
 
-    # 5. optionally show the decoded object (where the message was read from)
+    # 5. the decoded object -- the restored cover, identical to the input model.
+    print("\nThe cover model has been fully restored (reversible data hiding).")
     if _prompt_choice(
-        "Show the decoded object (where the message was read from)?",
-        {"no": "No", "yes": "Yes"},
+        "Save the restored (decoded) object as an .obj?", {"no": "No", "yes": "Yes"}
     ) == "yes":
-        _show_decoded(mesh, key, num_slices, len(data))
+        out = _pick_save_file("Save restored model as...", "restored.obj")
+        if out is None:
+            out = input("Path to save restored model: ").strip().strip('"')
+        if out:
+            mesh.save(out)
+            print(f"saved restored model -> {out}")
+
+    if _prompt_choice(
+        "Show the decoded object (restored model)?", {"no": "No", "yes": "Yes"}
+    ) == "yes":
+        _show_decoded(mesh)
     return 0
 
 
-def _show_decoded(mesh: Mesh, key: str, num_slices: int, payload_bytes: int) -> None:
-    """Open the decoded-object plot; degrade gracefully without matplotlib."""
+def _show_decoded(mesh: Mesh) -> None:
+    """Open a plain view of the restored (decoded) object; degrade gracefully."""
     try:
-        from slice3d.visualize import render_decoded
+        from slice3d.visualize import render_model
     except Exception:
         print('  (install visualisation with: pip install "slice3d[viz]")')
         return
     try:
-        render_decoded(mesh, key, num_slices, payload_bytes, show=True)
+        render_model(
+            mesh, title="Decoded object (restored cover, identical to input)", show=True
+        )
     except RuntimeError as exc:
         print(f"  {exc}")

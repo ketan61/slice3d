@@ -40,12 +40,18 @@ def main() -> None:
     args = parser.parse_args()
 
     vertices, faces = uv_sphere(args.stacks, args.slices)
-    with open(args.output, "w", encoding="utf-8") as fh:
-        fh.write("# slice3d sample UV sphere\n")
-        for x, y, z in vertices:
-            fh.write(f"v {x:.6f} {y:.6f} {z:.6f}\n")
-        for a, b, c, d in faces:
-            fh.write(f"f {a} {b} {c} {d}\n")
+    # Write through the canonical Mesh writer so a generated cover and a later
+    # restored cover are byte-identical (same -0.000000 normalisation, etc.).
+    from slice3d.mesh import Mesh
+
+    mesh = Mesh()
+    lines = ["# slice3d sample UV sphere"]
+    for x, y, z in vertices:
+        lines.append(f"v {x:.6f} {y:.6f} {z:.6f}")
+    for a, b, c, d in faces:
+        lines.append(f"f {a} {b} {c} {d}")
+    mesh = Mesh.loads("\n".join(lines))
+    mesh.save(args.output)
     print(f"wrote {len(vertices)} vertices, {len(faces)} faces to {args.output}")
 
 

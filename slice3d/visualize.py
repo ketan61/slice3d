@@ -14,9 +14,8 @@ from __future__ import annotations
 from typing import List, Optional, Sequence
 
 from slice3d.codec import HEADER_BITS
-from slice3d.keystream import embedding_order
 from slice3d.mesh import Mesh
-from slice3d.slicer import X, Z
+from slice3d.reversible import _ordered_carriers
 
 
 def payload_bits(payload_bytes: int) -> int:
@@ -25,19 +24,18 @@ def payload_bits(payload_bytes: int) -> int:
 
 
 def carrier_indices(
-    vertices: Sequence[Sequence[float]],
+    mesh: Mesh,
     key: str,
     num_slices: int,
     payload_bytes: int,
-    axis: int = Z,
 ) -> List[int]:
     """Return the vertex indices that carry data for a payload of the given size.
 
-    These are the first ``header + payload`` positions of the key-driven
-    embedding order -- i.e. the ROI. Clamped to the mesh's capacity.
+    These are the first ``header + payload`` reversible carriers in key-driven
+    order -- i.e. the ROI. Clamped to the mesh's capacity.
     """
-    order = embedding_order(vertices, key, num_slices, axis)
-    return order[: min(payload_bits(payload_bytes), len(order))]
+    ordered, _ = _ordered_carriers(mesh, key, num_slices)
+    return ordered[: min(payload_bits(payload_bytes), len(ordered))]
 
 
 def _require_matplotlib():
@@ -57,27 +55,24 @@ def render_roi(
     key: str,
     num_slices: int,
     payload_bytes: int,
-    axis: int = Z,
     out: Optional[str] = None,
     show: bool = False,
     title: Optional[str] = None,
-    role: str = "embedding",
 ):
-    """Render the mesh with data-carrying vertices highlighted in green.
+    """Render the mesh with data-carrying (ROI) vertices highlighted in green.
 
     Args:
-        mesh: the cover (or stego) model.
-        key, num_slices, axis: the embedding parameters that define the path.
+        mesh: the cover model.
+        key, num_slices: the embedding parameters that define the path.
         payload_bytes: size of the payload, to size the ROI.
         out: if given, save the figure to this path (e.g. ``roi.png``).
         show: if True, open an interactive window.
-        title: optional plot title (overrides the role-based default).
-        role: ``"embedding"`` (ROI, sender side) or ``"decoded"`` (receiver side).
+        title: optional plot title.
     """
     plt = _require_matplotlib()
 
     verts = mesh.vertices
-    carriers = set(carrier_indices(verts, key, num_slices, payload_bytes, axis))
+    carriers = set(carrier_indices(mesh, key, num_slices, payload_bytes))
 
     cx, cy, cz = [], [], []  # carrier vertices (green)
     ox, oy, oz = [], [], []  # other vertices (grey)
@@ -87,27 +82,19 @@ def render_roi(
         else:
             ox.append(x); oy.append(y); oz.append(z)
 
-    if role == "decoded":
-        default_title = (
-            f"Decoded object\n{len(carriers)} vertices the message was read "
-            f"from  (key-driven, {num_slices} slices)"
-        )
-        carrier_label = f"decoded vertices ({len(carriers)})"
-    else:
-        default_title = (
-            f"ROI selected for embedding\n{len(carriers)} of {len(verts)} "
-            f"vertices carry data  (key-driven, {num_slices} slices)"
-        )
-        carrier_label = f"data-carrying ({len(carriers)})"
-
     fig = plt.figure(figsize=(7, 6))
     ax = fig.add_subplot(111, projection="3d")
     ax.scatter(ox, oy, oz, c="0.6", s=5, alpha=0.5, linewidths=0,
                label="model vertices")
     ax.scatter(cx, cy, cz, c="limegreen", s=20, depthshade=False,
-               edgecolors="darkgreen", linewidths=0.3, label=carrier_label)
+               edgecolors="darkgreen", linewidths=0.3,
+               label=f"data-carrying ({len(carriers)})")
 
-    ax.set_title(title or default_title)
+    ax.set_title(
+        title
+        or f"ROI selected for embedding\n{len(carriers)} of {len(verts)} "
+        f"vertices carry data  (key-driven, {num_slices} slices)"
+    )
     ax.set_xlabel("X"); ax.set_ylabel("Y"); ax.set_zlabel("Z (slicing axis)")
     ax.legend(loc="upper right", fontsize=8)
     _set_equal_aspect(ax, verts)
@@ -122,21 +109,36 @@ def render_roi(
     return out
 
 
-def render_decoded(
+def render_model(
     mesh: Mesh,
-    key: str,
-    num_slices: int,
-    payload_bytes: int,
-    axis: int = Z,
+    title: str = "Model",
     out: Optional[str] = None,
     show: bool = False,
 ):
-    """Render the *decoded* object: the model the message was read from,
-    with the decoded vertices highlighted (receiver-side analogue of the ROI)."""
-    return render_roi(
-        mesh, key, num_slices, payload_bytes,
-        axis=axis, out=out, show=show, role="decoded",
-    )
+    """Render a plain view of a whole model (no highlighting).
+
+    Used for the decoded/restored object -- which, being reversible, looks
+    exactly like the original input -- and for cover/stego views.
+    """
+    plt = _require_matplotlib()
+    verts = mesh.vertices
+    xs = [v[0] for v in verts]; ys = [v[1] for v in verts]; zs = [v[2] for v in verts]
+
+    fig = plt.figure(figsize=(7, 6))
+    ax = fig.add_subplot(111, projection="3d")
+    ax.scatter(xs, ys, zs, c="0.4", s=5, alpha=0.6, linewidths=0)
+    ax.set_title(title)
+    ax.set_xlabel("X"); ax.set_ylabel("Y"); ax.set_zlabel("Z (slicing axis)")
+    _set_equal_aspect(ax, verts)
+    fig.tight_layout()
+
+    if out:
+        fig.savefig(out, dpi=150)
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+    return out
 
 
 def _set_equal_aspect(ax, verts: Sequence[Sequence[float]]) -> None:

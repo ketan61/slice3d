@@ -12,8 +12,23 @@ with the fixed-point representation used by the embedding code.
 from __future__ import annotations
 
 # Decimal places kept when writing vertices. Must match the fixed-point SCALE used
-# by slice3d.embed so that write -> read is lossless for the embedded LSBs.
+# by the embedding code so that write -> read is lossless for embedded bits.
 PRECISION = 6
+
+_NEG_ZERO = f"{-0.0:.{PRECISION}f}"  # "-0.000000"
+_POS_ZERO = f"{0.0:.{PRECISION}f}"   # "0.000000"
+
+
+def _fmt(x: float) -> str:
+    """Format a coordinate, canonicalising -0.000000 to 0.000000.
+
+    Degenerate coordinates that round to zero can carry a stray minus sign
+    ("-0.000000"), which is numerically identical but breaks byte-level equality
+    between a restored model and its original. Normalising keeps restoration
+    byte-clean without changing any value.
+    """
+    s = f"{x:.{PRECISION}f}"
+    return _POS_ZERO if s == _NEG_ZERO else s
 
 
 class Mesh:
@@ -31,6 +46,9 @@ class Mesh:
         # Any trailing tokens on a vertex line beyond x/y/z (e.g. vertex colors),
         # keyed by vertex index, preserved verbatim.
         self._vertex_extra: dict[int, str] = {}
+        # Faces as tuples of 0-based vertex indices, used only to derive vertex
+        # adjacency (never modified; the original lines are re-emitted verbatim).
+        self.faces: list[tuple[int, ...]] = []
 
     # -- construction ---------------------------------------------------------
 
@@ -53,8 +71,22 @@ class Mesh:
                     mesh._vertex_extra[idx] = " ".join(tokens[4:])
                 mesh._records.append(("v", idx))
             else:
+                if tokens and tokens[0] == "f" and len(tokens) >= 4:
+                    mesh.faces.append(mesh._parse_face(tokens[1:]))
                 mesh._records.append(("raw", line))
         return mesh
+
+    @staticmethod
+    def _parse_face(parts: list[str]) -> tuple[int, ...]:
+        """Parse OBJ face vertex refs (``v``, ``v/vt``, ``v//vn``) to 0-based ids."""
+        indices = []
+        for part in parts:
+            token = part.split("/", 1)[0]
+            if not token:
+                continue
+            i = int(token)
+            indices.append(i - 1 if i > 0 else i)  # negative = relative (rare)
+        return tuple(indices)
 
     # -- serialization --------------------------------------------------------
 
@@ -64,7 +96,7 @@ class Mesh:
             if kind == "v":
                 idx = value  # type: ignore[assignment]
                 x, y, z = self.vertices[idx]
-                line = f"v {x:.{PRECISION}f} {y:.{PRECISION}f} {z:.{PRECISION}f}"
+                line = f"v {_fmt(x)} {_fmt(y)} {_fmt(z)}"
                 extra = self._vertex_extra.get(idx)
                 if extra:
                     line += f" {extra}"

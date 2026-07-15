@@ -12,9 +12,8 @@ import argparse
 import sys
 from collections import Counter
 
-from slice3d.embed import capacity_bytes, embed
-from slice3d.extract import extract
 from slice3d.mesh import Mesh
+from slice3d.reversible import capacity_bytes, embed, extract
 from slice3d.slicer import Z, assign_slices, slice_bounds
 
 
@@ -49,6 +48,7 @@ def _cmd_embed(args: argparse.Namespace) -> int:
 
 
 def _cmd_extract(args: argparse.Namespace) -> int:
+    # extract() also restores the cover in place -- `mesh` becomes the original.
     mesh = Mesh.load(args.input)
     data = extract(mesh, key=args.key, num_slices=args.slices)
     if args.output:
@@ -59,19 +59,29 @@ def _cmd_extract(args: argparse.Namespace) -> int:
         sys.stdout.buffer.write(data)
         sys.stdout.buffer.write(b"\n")
 
-    if args.decoded or args.show_decoded:
-        from slice3d.visualize import render_decoded
+    # The restored cover ("decoded object") -- identical to the original input.
+    if args.restore:
+        mesh.save(args.restore)
+        print(f"restored cover -> {args.restore}")
 
-        render_decoded(
+    if args.original:
+        from slice3d.compare import diff_vertices
+
+        original = Mesh.load(args.original)
+        n = diff_vertices(original, mesh)
+        print(f"restored == original: {n == 0}  ({n} vertices differ)")
+
+    if args.decoded or args.show_decoded:
+        from slice3d.visualize import render_model
+
+        render_model(
             mesh,
-            key=args.key,
-            num_slices=args.slices,
-            payload_bytes=len(data),
+            title="Decoded object (restored cover, identical to input)",
             out=args.decoded,
             show=args.show_decoded or not args.decoded,
         )
         if args.decoded:
-            print(f"saved decoded-object visualisation -> {args.decoded}")
+            print(f"saved decoded-object figure -> {args.decoded}")
     return 0
 
 
@@ -140,8 +150,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_extract.add_argument("-n", "--slices", type=int, required=True)
     p_extract.add_argument("-o", "--output", help="write bytes here (else stdout)")
     p_extract.add_argument(
+        "--restore", metavar="OBJ",
+        help="save the restored cover model (identical to the original input)",
+    )
+    p_extract.add_argument(
+        "--original", metavar="OBJ",
+        help="compare the restored cover against this original and report if identical",
+    )
+    p_extract.add_argument(
         "--decoded", metavar="PNG",
-        help="save a 'decoded object' figure (vertices the message was read from)",
+        help="save a figure of the decoded object (the restored model)",
     )
     p_extract.add_argument(
         "--show-decoded", action="store_true",

@@ -1,9 +1,9 @@
 import math
 
 import slice3d.interactive as interactive
-from slice3d.extract import extract
 from slice3d.interactive import run_embed_wizard, run_extract_wizard, run_wizard
 from slice3d.mesh import Mesh
+from slice3d.reversible import extract
 
 
 def _write_sphere(path, stacks=20, slices=20):
@@ -19,9 +19,18 @@ def _write_sphere(path, stacks=20, slices=20):
                     math.cos(phi),
                 )
             )
+
+    def vid(i, j):
+        return i * slices + (j % slices) + 1
+
     with open(path, "w", encoding="utf-8") as fh:
         for x, y, z in verts:
             fh.write(f"v {x:.6f} {y:.6f} {z:.6f}\n")
+        for i in range(stacks):
+            for j in range(slices):
+                fh.write(
+                    f"f {vid(i, j)} {vid(i, j + 1)} {vid(i + 1, j + 1)} {vid(i + 1, j)}\n"
+                )
 
 
 def _feed_inputs(monkeypatch, answers):
@@ -64,13 +73,13 @@ def test_embed_wizard_falls_back_to_typed_path_when_no_dialog(tmp_path, monkeypa
 def test_embed_wizard_reprompts_when_message_too_large(tmp_path, monkeypatch):
     cover = tmp_path / "cover.obj"
     stego = tmp_path / "out.obj"
-    _write_sphere(cover, stacks=6, slices=6)  # small mesh, tiny capacity
+    _write_sphere(cover, stacks=12, slices=12)  # small mesh, tiny capacity
 
     monkeypatch.setattr(interactive, "_pick_open_file", lambda title: str(cover))
     monkeypatch.setattr(
         interactive, "_pick_save_file", lambda title, initialfile: str(stego)
     )
-    from slice3d.embed import capacity_bytes
+    from slice3d.reversible import capacity_bytes
 
     cap = capacity_bytes(Mesh.load(str(cover)))
     oversized = "x" * (cap + 5)
@@ -118,8 +127,8 @@ def test_extract_wizard_recovers_message(tmp_path, monkeypatch, capsys):
     stego = _make_stego(tmp_path, monkeypatch, "find me", "pw", 48)
 
     monkeypatch.setattr(interactive, "_pick_open_file", lambda title: str(stego))
-    # key, slices, then "no" to save, "no" to the decoded-object plot.
-    _feed_inputs(monkeypatch, ["pw", "48", "no", "no"])
+    # key, slices, then no to: save data, save restored obj, show decoded plot.
+    _feed_inputs(monkeypatch, ["pw", "48", "no", "no", "no"])
 
     assert run_extract_wizard() == 0
     assert "find me" in capsys.readouterr().out
@@ -133,7 +142,8 @@ def test_extract_wizard_can_save_to_file(tmp_path, monkeypatch):
     monkeypatch.setattr(
         interactive, "_pick_save_file", lambda title, initialfile: str(recovered)
     )
-    _feed_inputs(monkeypatch, ["pw", "48", "yes", "no"])
+    # save data = yes; save restored obj = no; show decoded = no.
+    _feed_inputs(monkeypatch, ["pw", "48", "yes", "no", "no"])
 
     assert run_extract_wizard() == 0
     assert recovered.read_bytes() == b"save me"

@@ -5,18 +5,33 @@ import matplotlib
 matplotlib.use("Agg")  # headless rendering for tests
 
 from slice3d.codec import HEADER_BITS
-from slice3d.embed import embed
-from slice3d.extract import extract
 from slice3d.mesh import Mesh
-from slice3d.visualize import carrier_indices, payload_bits, render_decoded, render_roi
+from slice3d.reversible import capacity_bits, embed, extract
+from slice3d.visualize import carrier_indices, payload_bits, render_model, render_roi
 
 
-def make_mesh(n):
-    mesh = Mesh()
-    for i in range(n):
-        mesh.vertices.append([i * 0.013 + 0.5, i * 0.027 + 0.5, i / (n - 1)])
-        mesh._records.append(("v", i))
-    return mesh
+def make_sphere(stacks=24, slices=24):
+    """An in-memory UV-sphere mesh with faces (so it has carriers)."""
+    lines = ["# sphere"]
+    for i in range(stacks + 1):
+        phi = math.pi * i / stacks
+        for j in range(slices):
+            theta = 2 * math.pi * j / slices
+            lines.append(
+                "v {:.6f} {:.6f} {:.6f}".format(
+                    math.sin(phi) * math.cos(theta),
+                    math.sin(phi) * math.sin(theta),
+                    math.cos(phi),
+                )
+            )
+
+    def vid(i, j):
+        return i * slices + (j % slices) + 1
+
+    for i in range(stacks):
+        for j in range(slices):
+            lines.append(f"f {vid(i, j)} {vid(i, j + 1)} {vid(i + 1, j + 1)} {vid(i + 1, j)}")
+    return Mesh.loads("\n".join(lines))
 
 
 def test_payload_bits_includes_header():
@@ -25,47 +40,44 @@ def test_payload_bits_includes_header():
 
 
 def test_carrier_count_matches_payload():
-    mesh = make_mesh(2000)
-    idx = carrier_indices(mesh.vertices, key="k", num_slices=64, payload_bytes=20)
-    assert len(idx) == HEADER_BITS + 20 * 8
+    mesh = make_sphere()
+    idx = carrier_indices(mesh, key="k", num_slices=64, payload_bytes=10)
+    assert len(idx) == HEADER_BITS + 10 * 8
     assert len(set(idx)) == len(idx)  # no vertex used twice
 
 
 def test_carriers_are_clamped_to_capacity():
-    mesh = make_mesh(50)
-    idx = carrier_indices(mesh.vertices, key="k", num_slices=8, payload_bytes=10_000)
-    assert len(idx) == 50  # cannot exceed the number of vertices
+    mesh = make_sphere()
+    idx = carrier_indices(mesh, key="k", num_slices=8, payload_bytes=10_000)
+    assert len(idx) == capacity_bits(mesh)  # cannot exceed available carriers
 
 
 def test_carrier_indices_match_the_actual_embedding_path():
-    """Vertices flagged as ROI must be exactly those whose X could change on embed."""
+    """Vertices actually modified on embed must all fall inside the reported ROI."""
     key, slices = "secret", 64
     data = b"the quick brown fox"
 
-    cover = make_mesh(2000)
+    cover = make_sphere()
     x_before = [v[0] for v in cover.vertices]
+    roi = set(carrier_indices(cover, key, slices, len(data)))
 
-    roi = set(carrier_indices(cover.vertices, key, slices, len(data)))
-
-    embed(cover, data, key=key, num_slices=slices)
+    embed(cover, data, key=key, num_slices=slices)  # cover is now stego
     changed = {i for i, x0 in enumerate(x_before) if cover.vertices[i][0] != x0}
 
-    # Every vertex that actually changed must be inside the ROI (the converse need
-    # not hold: an LSB only flips when the data bit differs from the current bit).
     assert changed.issubset(roi)
-    # And the payload still round-trips, confirming the path is the real one.
+    # And the payload round-trips (and restores), confirming the real path.
     assert extract(cover, key=key, num_slices=slices) == data
 
 
 def test_render_roi_saves_png(tmp_path):
-    mesh = make_mesh(500)
+    mesh = make_sphere()
     out = tmp_path / "roi.png"
-    render_roi(mesh, key="k", num_slices=32, payload_bytes=10, out=str(out))
+    render_roi(mesh, key="k", num_slices=32, payload_bytes=5, out=str(out))
     assert out.exists() and out.stat().st_size > 0
 
 
-def test_render_decoded_saves_png(tmp_path):
-    mesh = make_mesh(500)
-    out = tmp_path / "decoded.png"
-    render_decoded(mesh, key="k", num_slices=32, payload_bytes=10, out=str(out))
+def test_render_model_saves_png(tmp_path):
+    mesh = make_sphere()
+    out = tmp_path / "model.png"
+    render_model(mesh, title="restored", out=str(out))
     assert out.exists() and out.stat().st_size > 0

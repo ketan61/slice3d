@@ -1,11 +1,10 @@
-"""Fixed-point and bit-level primitives shared by embed/extract.
+"""Fixed-point and bit-level primitives shared by the embedding code.
 
-Vertex coordinates are floating point in the file, but LSB steganography needs a
-stable integer representation. We scale a coordinate by ``SCALE`` (matching the
-mesh writer's decimal ``PRECISION``) and round to an integer; the least
-significant bit of that integer is the carrier. Because the mesh writer emits the
-same number of decimals, ``write -> read -> to_fixed`` reproduces the integer
-exactly, so an embedded bit survives a save/load round-trip.
+Vertex coordinates are floating point in the file, but reversible embedding needs
+a stable integer representation. We scale a coordinate by ``SCALE`` (matching the
+mesh writer's decimal ``PRECISION``) and round to an integer. Because the mesh
+writer emits the same number of decimals, ``write -> read -> to_fixed`` reproduces
+the integer exactly, so the embedding survives a save/load round-trip.
 """
 
 from __future__ import annotations
@@ -29,14 +28,6 @@ def to_fixed(value: float) -> int:
 
 def from_fixed(value: int) -> float:
     return value / SCALE
-
-
-def get_lsb(n: int) -> int:
-    return n % 2  # non-negative for negative n too (Python floor modulo)
-
-
-def set_lsb(n: int, bit: int) -> int:
-    return n - (n % 2) + bit
 
 
 # -- bit packing ------------------------------------------------------------

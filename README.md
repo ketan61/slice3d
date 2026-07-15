@@ -26,24 +26,28 @@ visually and structurally identical to the original.
 
 Three invariants keep the scheme correct and blind:
 
-1. **Slicing axis is never modified.** We slice along Z, so embedding only perturbs **X/Y**
-   coordinates. A vertex can therefore never drift into a neighbouring slice, so the receiver's
-   slice assignment always matches the sender's.
-2. **All randomness is key-derived.** Slice and point selection come from a PRNG seeded by the
+1. **Reversible embedding (RDH).** Data is hidden by **prediction-error expansion**: each embed
+   vertex's X is predicted from its unchanged neighbours and the small prediction error is expanded
+   to carry a bit. Extraction recovers both the message **and** the exact original cover — the
+   restored model is byte-identical to the input.
+2. **Slicing axis is never modified.** We slice along Z, so embedding only perturbs **X**. A vertex
+   can therefore never drift into a neighbouring slice, so the receiver's slice assignment always
+   matches the sender's.
+3. **All randomness is key-derived.** Slice and point selection come from a PRNG seeded by the
    shared secret key. The receiver regenerates the identical embedding order — no side channel or
    location map is transmitted.
-3. **Vertex order and precision are preserved.** A dedicated order-preserving OBJ reader/writer
+4. **Vertex order and precision are preserved.** A dedicated order-preserving OBJ reader/writer
    avoids the silent vertex merging, reordering, and rounding that general mesh libraries perform
    and which would destroy hidden data.
 
 ## Status
 
-Working end-to-end pipeline:
+Working end-to-end reversible pipeline:
 
 - [x] Order/precision-preserving OBJ mesh I/O (`slice3d.mesh`)
 - [x] Axis slicing & slice assignment (`slice3d.slicer`)
 - [x] Key-driven embedding path (`slice3d.keystream`)
-- [x] Reversible embed / extract (`slice3d.embed`, `slice3d.extract`)
+- [x] Reversible embed / extract via prediction-error expansion (`slice3d.reversible`)
 - [x] Command-line interface (`slice3d.cli`)
 
 ## Usage
@@ -75,8 +79,11 @@ python -m slice3d.cli embed -i sphere.obj -o stego.obj -k s3cret -n 256 \
 # Recover it (receiver) — needs only the same key and slice count
 python -m slice3d.cli extract -i stego.obj -k s3cret -n 256
 
-# Recover it AND show the "decoded object" (which vertices it was read from)
-python -m slice3d.cli extract -i stego.obj -k s3cret -n 256 --decoded decoded.png
+# Recover it AND restore the exact original cover, verifying reversibility
+python -m slice3d.cli extract -i stego.obj -k s3cret -n 256 \
+    --restore restored.obj --original sphere.obj
+# -> prints "restored == original: True (0 vertices differ)"; restored.obj is
+#    byte-identical to sphere.obj, while stego.obj differs (it carries the data)
 ```
 
 ### Visualise the embedding ROI
