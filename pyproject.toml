@@ -23,7 +23,8 @@ dependencies = []
 slice3d = "slice3d.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0"]
+viz = ["matplotlib>=3.5"]
+dev = ["pytest>=7.0", "matplotlib>=3.5"]
 
 [tool.setuptools.packages.find]
 include = ["slice3d*"]

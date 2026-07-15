@@ -40,7 +40,7 @@ def test_embed_wizard_embeds_and_is_extractable(tmp_path, monkeypatch):
     monkeypatch.setattr(
         interactive, "_pick_save_file", lambda title, initialfile: str(stego)
     )
-    _feed_inputs(monkeypatch, ["64", "hello wizard", "mykey"])
+    _feed_inputs(monkeypatch, ["64", "hello wizard", "mykey", "no"])
 
     assert run_embed_wizard() == 0
     assert stego.exists()
@@ -53,7 +53,7 @@ def test_embed_wizard_falls_back_to_typed_path_when_no_dialog(tmp_path, monkeypa
 
     monkeypatch.setattr(interactive, "_pick_open_file", lambda title: None)
     monkeypatch.setattr(interactive, "_pick_save_file", lambda title, initialfile: None)
-    _feed_inputs(monkeypatch, [str(cover), "32", "typed path works", "k"])
+    _feed_inputs(monkeypatch, [str(cover), "32", "typed path works", "k", "no"])
 
     assert run_embed_wizard() == 0
     default_out = cover.with_name(cover.stem + "_stego.obj")
@@ -75,7 +75,7 @@ def test_embed_wizard_reprompts_when_message_too_large(tmp_path, monkeypatch):
     cap = capacity_bytes(Mesh.load(str(cover)))
     oversized = "x" * (cap + 5)
     ok = "y" * max(1, cap - 1)
-    _feed_inputs(monkeypatch, ["8", oversized, ok, "key"])
+    _feed_inputs(monkeypatch, ["8", oversized, ok, "key", "no"])
 
     assert run_embed_wizard() == 0
     assert extract(Mesh.load(str(stego)), key="key", num_slices=8) == ok.encode()
@@ -93,7 +93,7 @@ def test_run_wizard_menu_dispatches_to_embed(tmp_path, monkeypatch):
         interactive, "_pick_save_file", lambda title, initialfile: str(stego)
     )
     # First answer picks "hide" from the menu, then the embed prompts follow.
-    _feed_inputs(monkeypatch, ["hide", "64", "menu works", "kk"])
+    _feed_inputs(monkeypatch, ["hide", "64", "menu works", "kk", "no"])
 
     assert run_wizard() == 0
     assert extract(Mesh.load(str(stego)), key="kk", num_slices=64) == b"menu works"
@@ -109,7 +109,7 @@ def _make_stego(tmp_path, monkeypatch, message, key, slices):
     monkeypatch.setattr(
         interactive, "_pick_save_file", lambda title, initialfile: str(stego)
     )
-    _feed_inputs(monkeypatch, [str(slices), message, key])
+    _feed_inputs(monkeypatch, [str(slices), message, key, "no"])
     assert run_embed_wizard() == 0
     return stego
 

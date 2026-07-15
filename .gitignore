@@ -23,3 +23,6 @@ Thumbs.db
 
 # Generated stego meshes (keep the repo clean of experiment output)
 *.stego.obj
+*_stego.obj
+# ROI/figure output
+roi.png

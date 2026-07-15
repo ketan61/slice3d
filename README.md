@@ -76,6 +76,17 @@ python -m slice3d.cli embed -i sphere.obj -o stego.obj -k s3cret -n 256 \
 python -m slice3d.cli extract -i stego.obj -k s3cret -n 256
 ```
 
+### Visualise the embedding ROI
+
+See exactly which vertices carry the hidden data, drawn as green dots on the model
+(the 3D analogue of an ROI mask on a cover image). Requires the `viz` extra
+(`pip install "slice3d[viz]"`).
+
+```bash
+# Save a figure sized to a given message (or use -f FILE / -b NBYTES)
+slice3d visualize -i sphere.obj -k s3cret -n 256 -m "my secret" -o roi.png
+```
+
 Or from Python:
 
 ```python

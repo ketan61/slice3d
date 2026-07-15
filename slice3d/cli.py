@@ -61,6 +61,34 @@ def _cmd_extract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _payload_size(args: argparse.Namespace) -> int:
+    """Number of payload bytes implied by --message / --data-file / --bytes."""
+    if args.message is not None:
+        return len(args.message.encode("utf-8"))
+    if args.data_file is not None:
+        with open(args.data_file, "rb") as fh:
+            return len(fh.read())
+    return args.bytes
+
+
+def _cmd_visualize(args: argparse.Namespace) -> int:
+    from slice3d.visualize import render_roi
+
+    mesh = Mesh.load(args.input)
+    size = _payload_size(args)
+    render_roi(
+        mesh,
+        key=args.key,
+        num_slices=args.slices,
+        payload_bytes=size,
+        out=args.output,
+        show=args.show or not args.output,
+    )
+    if args.output:
+        print(f"saved ROI visualisation -> {args.output}")
+    return 0
+
+
 def _cmd_wizard(args: argparse.Namespace) -> int:
     from slice3d.interactive import run_wizard
 
@@ -98,6 +126,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_extract.add_argument("-n", "--slices", type=int, required=True)
     p_extract.add_argument("-o", "--output", help="write bytes here (else stdout)")
     p_extract.set_defaults(func=_cmd_extract)
+
+    p_viz = sub.add_parser(
+        "visualize", help="show which vertices carry data (ROI) as green dots"
+    )
+    p_viz.add_argument("-i", "--input", required=True)
+    p_viz.add_argument("-k", "--key", required=True)
+    p_viz.add_argument("-n", "--slices", type=int, required=True)
+    p_viz.add_argument("-o", "--output", help="save figure to this PNG (else show window)")
+    p_viz.add_argument("--show", action="store_true", help="also open an interactive window")
+    size = p_viz.add_mutually_exclusive_group(required=True)
+    size.add_argument("-m", "--message", help="size the ROI to this UTF-8 message")
+    size.add_argument("-f", "--data-file", help="size the ROI to this file's contents")
+    size.add_argument("-b", "--bytes", type=int, help="size the ROI to this many bytes")
+    p_viz.set_defaults(func=_cmd_visualize)
 
     return parser
 
