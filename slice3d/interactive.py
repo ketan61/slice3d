@@ -176,23 +176,29 @@ def run_embed_wizard() -> int:
     print(f"  slices = {num_slices}")
     print(f"\n  slice3d extract -i \"{output}\" -k \"{key}\" -n {num_slices}")
 
-    # 7. optionally show the embedder where the data landed (ROI)
+    # 7. optionally save the ROI figure (where the data is hidden) to an image
     if _prompt_choice(
-        "Show where the data is hidden (ROI)?", {"no": "No", "yes": "Yes"}
+        "Save the ROI figure (where the data is hidden) as an image?",
+        {"no": "No", "yes": "Yes"},
     ) == "yes":
-        _show_roi(mesh, key, num_slices, len(message.encode("utf-8")))
+        out = _pick_save_file("Save ROI image as...", "roi.png")
+        if out is None:
+            out = input("Path to save ROI image: ").strip().strip('"')
+        if out:
+            _save_roi(mesh, key, num_slices, len(message.encode("utf-8")), out)
     return 0
 
 
-def _show_roi(mesh: Mesh, key: str, num_slices: int, payload_bytes: int) -> None:
-    """Open the ROI plot; degrade gracefully if matplotlib is not installed."""
+def _save_roi(mesh: Mesh, key: str, num_slices: int, payload_bytes: int, out: str) -> None:
+    """Render the ROI figure to a file (no window); degrade gracefully."""
     try:
         from slice3d.visualize import render_roi
     except Exception:
         print('  (install visualisation with: pip install "slice3d[viz]")')
         return
     try:
-        render_roi(mesh, key, num_slices, payload_bytes, show=True)
+        render_roi(mesh, key, num_slices, payload_bytes, out=out, show=False)
+        print(f"saved ROI image -> {out}")
     except RuntimeError as exc:
         print(f"  {exc}")
 
@@ -247,24 +253,4 @@ def run_extract_wizard() -> int:
         if out:
             mesh.save(out)
             print(f"saved restored model -> {out}")
-
-    if _prompt_choice(
-        "Show the decoded object (restored model)?", {"no": "No", "yes": "Yes"}
-    ) == "yes":
-        _show_decoded(mesh)
     return 0
-
-
-def _show_decoded(mesh: Mesh) -> None:
-    """Open a plain view of the restored (decoded) object; degrade gracefully."""
-    try:
-        from slice3d.visualize import render_model
-    except Exception:
-        print('  (install visualisation with: pip install "slice3d[viz]")')
-        return
-    try:
-        render_model(
-            mesh, title="Decoded object (restored cover, identical to input)", show=True
-        )
-    except RuntimeError as exc:
-        print(f"  {exc}")
