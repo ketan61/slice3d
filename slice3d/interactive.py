@@ -176,31 +176,20 @@ def run_embed_wizard() -> int:
     print(f"  slices = {num_slices}")
     print(f"\n  slice3d extract -i \"{output}\" -k \"{key}\" -n {num_slices}")
 
-    # 7. optionally save the ROI figure (where the data is hidden) to an image
+    # 7. optionally save the ROI as a 3D object (green = data-carrying vertices)
     if _prompt_choice(
-        "Save the ROI figure (where the data is hidden) as an image?",
+        "Save the ROI object (data-carrying vertices in green) as an .obj?",
         {"no": "No", "yes": "Yes"},
     ) == "yes":
-        out = _pick_save_file("Save ROI image as...", "roi.png")
+        out = _pick_save_file("Save ROI object as...", "roi.obj")
         if out is None:
-            out = input("Path to save ROI image: ").strip().strip('"')
+            out = input("Path to save ROI object: ").strip().strip('"')
         if out:
-            _save_roi(mesh, key, num_slices, len(message.encode("utf-8")), out)
+            from slice3d.visualize import export_roi_obj
+
+            export_roi_obj(mesh, key, num_slices, len(message.encode("utf-8")), out)
+            print(f"saved ROI object -> {out}")
     return 0
-
-
-def _save_roi(mesh: Mesh, key: str, num_slices: int, payload_bytes: int, out: str) -> None:
-    """Render the ROI figure to a file (no window); degrade gracefully."""
-    try:
-        from slice3d.visualize import render_roi
-    except Exception:
-        print('  (install visualisation with: pip install "slice3d[viz]")')
-        return
-    try:
-        render_roi(mesh, key, num_slices, payload_bytes, out=out, show=False)
-        print(f"saved ROI image -> {out}")
-    except RuntimeError as exc:
-        print(f"  {exc}")
 
 
 def run_extract_wizard() -> int:

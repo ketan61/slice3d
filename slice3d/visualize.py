@@ -38,6 +38,38 @@ def carrier_indices(
     return ordered[: min(payload_bits(payload_bytes), len(ordered))]
 
 
+def export_roi_obj(
+    mesh: Mesh,
+    key: str,
+    num_slices: int,
+    payload_bytes: int,
+    out: str,
+    carrier_color=(0.0, 1.0, 0.0),
+    other_color=(0.6, 0.6, 0.6),
+) -> str:
+    """Write the model as an OBJ with data-carrying (ROI) vertices coloured green.
+
+    Vertex colours are written as ``v x y z r g b`` (read by MeshLab, Blender,
+    etc.), so the ROI can be inspected as a real 3D object instead of an image.
+    Faces, comments and other lines are preserved. No plotting library needed.
+    """
+    from slice3d.mesh import _fmt
+
+    carriers = set(carrier_indices(mesh, key, num_slices, payload_bytes))
+    lines: List[str] = []
+    for kind, value in mesh._records:
+        if kind == "v":
+            idx = value
+            x, y, z = mesh.vertices[idx]
+            r, g, b = carrier_color if idx in carriers else other_color
+            lines.append(f"v {_fmt(x)} {_fmt(y)} {_fmt(z)} {r:.3f} {g:.3f} {b:.3f}")
+        else:
+            lines.append(value)
+    with open(out, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines) + "\n")
+    return out
+
+
 def _require_matplotlib():
     try:
         import matplotlib.pyplot as plt  # noqa: F401

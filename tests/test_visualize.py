@@ -7,7 +7,13 @@ matplotlib.use("Agg")  # headless rendering for tests
 from slice3d.codec import HEADER_BITS
 from slice3d.mesh import Mesh
 from slice3d.reversible import capacity_bits, embed, extract
-from slice3d.visualize import carrier_indices, payload_bits, render_model, render_roi
+from slice3d.visualize import (
+    carrier_indices,
+    export_roi_obj,
+    payload_bits,
+    render_model,
+    render_roi,
+)
 
 
 def make_sphere(stacks=24, slices=24):
@@ -81,3 +87,15 @@ def test_render_model_saves_png(tmp_path):
     out = tmp_path / "model.png"
     render_model(mesh, title="restored", out=str(out))
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_export_roi_obj_colours_carriers_and_keeps_faces(tmp_path):
+    mesh = make_sphere()
+    out = tmp_path / "roi.obj"
+    export_roi_obj(mesh, key="k", num_slices=64, payload_bytes=10, out=str(out))
+
+    reloaded = Mesh.loads(out.read_text())
+    green = sum(1 for v in reloaded._vertex_extra.values() if v == "0.000 1.000 0.000")
+    assert green == payload_bits(10)                     # exactly the ROI vertices
+    assert len(reloaded.vertices) == len(mesh.vertices)  # geometry preserved
+    assert len(reloaded.faces) == len(mesh.faces)        # faces preserved

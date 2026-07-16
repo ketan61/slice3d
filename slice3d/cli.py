@@ -96,10 +96,19 @@ def _payload_size(args: argparse.Namespace) -> int:
 
 
 def _cmd_visualize(args: argparse.Namespace) -> int:
-    from slice3d.visualize import render_roi
-
     mesh = Mesh.load(args.input)
     size = _payload_size(args)
+
+    # A .obj output writes the ROI as a colour-tagged 3D object; otherwise a figure.
+    if args.output and args.output.lower().endswith(".obj"):
+        from slice3d.visualize import export_roi_obj
+
+        export_roi_obj(mesh, args.key, args.slices, size, args.output)
+        print(f"saved ROI object -> {args.output}")
+        return 0
+
+    from slice3d.visualize import render_roi
+
     render_roi(
         mesh,
         key=args.key,

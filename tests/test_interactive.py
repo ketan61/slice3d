@@ -163,20 +163,25 @@ def test_extract_wizard_wrong_key_reports_cleanly(tmp_path, monkeypatch, capsys)
     assert "Could not extract" in capsys.readouterr().out
 
 
-def test_embed_wizard_saves_roi_image_without_a_window(tmp_path, monkeypatch):
+def test_embed_wizard_saves_roi_object_without_a_window(tmp_path, monkeypatch):
     cover = tmp_path / "cover.obj"
     stego = tmp_path / "cover_stego.obj"
-    roi = tmp_path / "roi.png"
+    roi = tmp_path / "roi.obj"
     _write_sphere(cover)
 
     monkeypatch.setattr(interactive, "_pick_open_file", lambda title: str(cover))
-    saves = iter([str(stego), str(roi)])  # stego save, then ROI image save
+    saves = iter([str(stego), str(roi)])  # stego save, then ROI object save
     monkeypatch.setattr(interactive, "_pick_save_file", lambda title, initialfile: next(saves))
-    # slices, message, key, then "yes" to saving the ROI image.
+    # slices, message, key, then "yes" to saving the ROI object.
     _feed_inputs(monkeypatch, ["64", "hello", "key", "yes"])
 
     assert run_embed_wizard() == 0
-    assert roi.exists() and roi.stat().st_size > 0
+    assert roi.exists()
+    roi_mesh = Mesh.loads(roi.read_text())
+    # ROI object keeps the geometry and marks carriers green (32 header + 5*8 bits).
+    green = sum(1 for v in roi_mesh._vertex_extra.values() if v == "0.000 1.000 0.000")
+    assert green == 32 + len("hello") * 8
+    assert len(roi_mesh.faces) == len(Mesh.load(str(cover)).faces)
 
 
 def test_extract_wizard_saves_restored_object(tmp_path, monkeypatch):
