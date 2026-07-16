@@ -26,10 +26,11 @@ visually and structurally identical to the original.
 
 Three invariants keep the scheme correct and blind:
 
-1. **Reversible embedding (RDH).** Data is hidden by **prediction-error expansion**: each embed
-   vertex's X is predicted from its unchanged neighbours and the small prediction error is expanded
-   to carry a bit. Extraction recovers both the message **and** the exact original cover — the
-   restored model is byte-identical to the input.
+1. **Reversible embedding (RDH).** Data is hidden by **thresholded prediction-error expansion**:
+   each embed vertex's X is predicted from its unchanged neighbours, and only the lowest-error
+   vertices carry data (their error is expanded to hold a bit); the rest are shifted by at most one
+   unit. This bounds every vertex's movement, so the stego model stays visually identical to the
+   cover, while extraction recovers both the message **and** the exact original cover.
 2. **Slicing axis is never modified.** We slice along Z, so embedding only perturbs **X**. A vertex
    can therefore never drift into a neighbouring slice, so the receiver's slice assignment always
    matches the sender's.

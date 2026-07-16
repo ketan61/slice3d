@@ -134,10 +134,78 @@ def capacity_bytes(mesh: Mesh) -> int:
     return max(0, (capacity_bits(mesh) - HEADER_BITS) // 8)
 
 
+def data_carrier_indices(mesh: Mesh, key: str, num_slices: int, payload_bytes: int):
+    """The vertices that actually carry data for a payload of the given size.
+
+    Reproduces embedding's selection on the *cover* mesh: the lowest-error
+    expandable vertices, in key order, up to ``header + payload`` of them. This is
+    the true ROI -- where the secret data lives.
+    """
+    carriers, predictors = _ordered_carriers(mesh, key, num_slices)
+    needed = min(HEADER_BITS + payload_bytes * 8, len(carriers))
+    if needed <= 0:
+        return []
+    errors = {
+        i: to_fixed(mesh.vertices[i][X]) - _predict(mesh, predictors[i])
+        for i in carriers
+    }
+    threshold = sorted(abs(errors[i]) for i in carriers)[needed - 1]
+    out = []
+    for i in carriers:
+        if abs(errors[i]) <= threshold:
+            out.append(i)
+            if len(out) == needed:
+                break
+    return out
+
+
+# -- threshold side-info ----------------------------------------------------
+#
+# Embedding expands the prediction error (e' = 2e + b) only for vertices whose
+# error is small (|e| <= T); vertices with larger errors are merely *shifted* by
+# T+1 to keep the two cases distinguishable. This bounds every vertex's movement
+# to at most T+1 fixed-point units, so the stego model stays visually identical
+# to the cover. T is chosen as small as the payload allows and recorded in a one
+# line marker in the stego file (the single piece of side information needed to
+# decode); the marker is stripped again on extraction so the restored cover is
+# byte-identical to the original.
+
+_MARKER = "# slice3d-rdh"
+
+
+def _set_threshold(mesh: Mesh, threshold: int) -> None:
+    mesh._records = [
+        r for r in mesh._records
+        if not (r[0] == "raw" and isinstance(r[1], str) and r[1].startswith(_MARKER))
+    ]
+    mesh._records.insert(0, ("raw", f"{_MARKER} T={threshold}"))
+
+
+def _pop_threshold(mesh: Mesh):
+    """Read and remove the threshold marker; return T (or None if absent)."""
+    threshold = None
+    kept = []
+    for r in mesh._records:
+        if r[0] == "raw" and isinstance(r[1], str) and r[1].startswith(_MARKER):
+            try:
+                threshold = int(r[1].split("T=")[1].split()[0])
+            except (IndexError, ValueError):
+                threshold = None
+        else:
+            kept.append(r)
+    mesh._records = kept
+    return threshold
+
+
 # -- embed / extract --------------------------------------------------------
 
 def embed(mesh: Mesh, data: bytes, key: str, num_slices: int) -> Mesh:
-    """Reversibly embed ``data`` into ``mesh`` in place and return it."""
+    """Reversibly embed ``data`` into ``mesh`` in place and return it.
+
+    Uses thresholded prediction-error expansion so the stego model stays close to
+    the cover: only the lowest-error vertices carry data, and every vertex moves
+    by at most ``T+1`` fixed-point units (1 unit = 1e-6 model units).
+    """
     carriers, predictors = _ordered_carriers(mesh, key, num_slices)
     bits = int_to_bits(len(data), HEADER_BITS) + bytes_to_bits(data)
     if len(bits) > len(carriers):
@@ -146,11 +214,25 @@ def embed(mesh: Mesh, data: bytes, key: str, num_slices: int) -> Mesh:
             f"{len(carriers)} (max {capacity_bytes(mesh)} bytes)"
         )
 
-    for bit, i in zip(bits, carriers):
-        pred = _predict(mesh, predictors[i])
-        e = to_fixed(mesh.vertices[i][X]) - pred
-        expanded = 2 * e + bit
-        mesh.vertices[i][X] = from_fixed(pred + expanded)
+    preds = {i: _predict(mesh, predictors[i]) for i in carriers}
+    errors = {i: to_fixed(mesh.vertices[i][X]) - preds[i] for i in carriers}
+
+    # Smallest threshold that makes at least len(bits) vertices expandable.
+    threshold = sorted(abs(errors[i]) for i in carriers)[len(bits) - 1]
+
+    bit_iter = iter(bits)
+    for i in carriers:
+        e = errors[i]
+        if abs(e) <= threshold:
+            b = next(bit_iter, 0)  # 0-pad expandable carriers beyond the payload
+            e2 = 2 * e + b
+        elif e > threshold:
+            e2 = e + (threshold + 1)
+        else:  # e < -threshold
+            e2 = e - (threshold + 1)
+        mesh.vertices[i][X] = from_fixed(preds[i] + e2)
+
+    _set_threshold(mesh, threshold)
     return mesh
 
 
@@ -158,29 +240,36 @@ def extract(mesh: Mesh, key: str, num_slices: int) -> bytes:
     """Recover the hidden bytes AND restore the original cover in place.
 
     After this call ``mesh`` holds the exact original model (all embed vertices
-    reverted), demonstrating reversibility. Must use the same key/slice count.
+    reverted and the side-info marker removed), demonstrating reversibility. Must
+    use the same key/slice count.
     """
+    threshold = _pop_threshold(mesh)
+    if threshold is None:
+        raise ValueError("not a slice3d stego model (missing threshold marker)")
+
     carriers, predictors = _ordered_carriers(mesh, key, num_slices)
+    limit = 2 * threshold + 1
 
-    def read_and_restore(i: int) -> int:
+    bits = []
+    for i in carriers:
         pred = _predict(mesh, predictors[i])
-        expanded = to_fixed(mesh.vertices[i][X]) - pred
-        bit = expanded % 2
-        e = (expanded - bit) // 2
+        e2 = to_fixed(mesh.vertices[i][X]) - pred
+        if abs(e2) <= limit:  # expanded -> carries a bit
+            b = e2 % 2
+            e = (e2 - b) // 2
+            bits.append(b)
+        elif e2 > 0:  # shifted up
+            e = e2 - (threshold + 1)
+        else:  # shifted down
+            e = e2 + (threshold + 1)
         mesh.vertices[i][X] = from_fixed(pred + e)  # restore original X
-        return bit
 
-    if len(carriers) < HEADER_BITS:
-        raise ValueError("mesh too small to contain a length header")
-
-    header = [read_and_restore(carriers[p]) for p in range(HEADER_BITS)]
-    length = bits_to_int(header)
-
+    if len(bits) < HEADER_BITS:
+        raise ValueError("no length header; wrong key or slice count?")
+    length = bits_to_int(bits[:HEADER_BITS])
     total = HEADER_BITS + length * 8
-    if total > len(carriers):
+    if total > len(bits):
         raise ValueError(
-            "declared payload length exceeds mesh capacity; wrong key or slice count?"
+            "declared payload length exceeds capacity; wrong key or slice count?"
         )
-
-    payload_bits = [read_and_restore(carriers[p]) for p in range(HEADER_BITS, total)]
-    return bits_to_bytes(payload_bits)
+    return bits_to_bytes(bits[HEADER_BITS:total])

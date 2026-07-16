@@ -15,7 +15,7 @@ from typing import List, Optional, Sequence
 
 from slice3d.codec import HEADER_BITS
 from slice3d.mesh import Mesh
-from slice3d.reversible import _ordered_carriers
+from slice3d.reversible import data_carrier_indices
 
 
 def payload_bits(payload_bytes: int) -> int:
@@ -31,11 +31,10 @@ def carrier_indices(
 ) -> List[int]:
     """Return the vertex indices that carry data for a payload of the given size.
 
-    These are the first ``header + payload`` reversible carriers in key-driven
-    order -- i.e. the ROI. Clamped to the mesh's capacity.
+    These are the actual data-carrying (lowest-error, key-ordered) vertices -- the
+    ROI. Compute on the cover mesh for accurate results.
     """
-    ordered, _ = _ordered_carriers(mesh, key, num_slices)
-    return ordered[: min(payload_bits(payload_bytes), len(ordered))]
+    return data_carrier_indices(mesh, key, num_slices, payload_bytes)
 
 
 def export_roi_obj(

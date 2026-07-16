@@ -187,7 +187,11 @@ def run_embed_wizard() -> int:
         if out:
             from slice3d.visualize import export_roi_obj
 
-            export_roi_obj(mesh, key, num_slices, len(message.encode("utf-8")), out)
+            # Compute the ROI on the original cover (reloaded from disk), whose
+            # prediction errors define which vertices carry data.
+            export_roi_obj(
+                Mesh.load(cover), key, num_slices, len(message.encode("utf-8")), out
+            )
             print(f"saved ROI object -> {out}")
     return 0
 

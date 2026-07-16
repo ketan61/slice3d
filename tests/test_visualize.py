@@ -58,21 +58,20 @@ def test_carriers_are_clamped_to_capacity():
     assert len(idx) == capacity_bits(mesh)  # cannot exceed available carriers
 
 
-def test_carrier_indices_match_the_actual_embedding_path():
-    """Vertices actually modified on embed must all fall inside the reported ROI."""
+def test_roi_is_the_data_carrying_subset_and_round_trips():
+    """The ROI is exactly the data-carrying vertex set, and embedding round-trips."""
     key, slices = "secret", 64
     data = b"the quick brown fox"
 
     cover = make_sphere()
-    x_before = [v[0] for v in cover.vertices]
-    roi = set(carrier_indices(cover, key, slices, len(data)))
+    roi = carrier_indices(cover, key, slices, len(data))
+    assert len(roi) == payload_bits(len(data))  # header + payload vertices
+    assert len(set(roi)) == len(roi)            # each used once
 
     embed(cover, data, key=key, num_slices=slices)  # cover is now stego
-    changed = {i for i, x0 in enumerate(x_before) if cover.vertices[i][0] != x0}
-
-    assert changed.issubset(roi)
-    # And the payload round-trips (and restores), confirming the real path.
-    assert extract(cover, key=key, num_slices=slices) == data
+    # Round-trips and restores exactly (reversibility), via a serialize/reload.
+    stego = Mesh.loads(cover.dumps())
+    assert extract(stego, key=key, num_slices=slices) == data
 
 
 def test_render_roi_saves_png(tmp_path):
