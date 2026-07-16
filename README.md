@@ -26,25 +26,95 @@ visually and structurally identical to the original.
 
 Three invariants keep the scheme correct and blind:
 
-1. **Slicing axis is never modified.** We slice along Z, so embedding only perturbs **X/Y**
-   coordinates. A vertex can therefore never drift into a neighbouring slice, so the receiver's
-   slice assignment always matches the sender's.
-2. **All randomness is key-derived.** Slice and point selection come from a PRNG seeded by the
+1. **Reversible embedding (RDH).** Data is hidden by **thresholded prediction-error expansion**:
+   each embed vertex's X is predicted from its unchanged neighbours, and only the lowest-error
+   vertices carry data (their error is expanded to hold a bit); the rest are shifted by at most one
+   unit. This bounds every vertex's movement, so the stego model stays visually identical to the
+   cover, while extraction recovers both the message **and** the exact original cover.
+2. **Slicing axis is never modified.** We slice along Z, so embedding only perturbs **X**. A vertex
+   can therefore never drift into a neighbouring slice, so the receiver's slice assignment always
+   matches the sender's.
+3. **All randomness is key-derived.** Slice and point selection come from a PRNG seeded by the
    shared secret key. The receiver regenerates the identical embedding order — no side channel or
    location map is transmitted.
-3. **Vertex order and precision are preserved.** A dedicated order-preserving OBJ reader/writer
+4. **Vertex order and precision are preserved.** A dedicated order-preserving OBJ reader/writer
    avoids the silent vertex merging, reordering, and rounding that general mesh libraries perform
    and which would destroy hidden data.
 
 ## Status
 
-Early scaffold. Implemented so far:
+Working end-to-end reversible pipeline:
 
 - [x] Order/precision-preserving OBJ mesh I/O (`slice3d.mesh`)
 - [x] Axis slicing & slice assignment (`slice3d.slicer`)
-- [ ] Key-driven embedding path (`slice3d.keystream`)
-- [ ] Reversible embed / extract (`slice3d.embed`, `slice3d.extract`)
-- [ ] Command-line interface (`slice3d.cli`)
+- [x] Key-driven embedding path (`slice3d.keystream`)
+- [x] Reversible embed / extract via prediction-error expansion (`slice3d.reversible`)
+- [x] Command-line interface (`slice3d.cli`)
+
+## Usage
+
+### Interactive wizard (easiest)
+
+Run with no arguments (or `slice3d wizard`) to be guided through it. First choose
+whether to **hide** or **extract**; a file-explorer dialog then opens to pick the
+`.obj` model and you are prompted for the slice count, key, and (when hiding) the
+secret message. Extraction prints the recovered message and can save it to a file.
+
+```bash
+slice3d            # or: python -m slice3d.cli wizard
+```
+
+### Command line
+
+```bash
+# Generate a sample mesh to play with (the tiny example cube is too small to carry a payload)
+python examples/make_sample.py sphere.obj --stacks 40 --slices 40
+
+# Inspect capacity and slice distribution
+python -m slice3d.cli info -i sphere.obj -n 256
+
+# Hide a message (sender)
+python -m slice3d.cli embed -i sphere.obj -o stego.obj -k s3cret -n 256 \
+    -m "reversible data hiding works!"
+
+# Recover it (receiver) — needs only the same key and slice count
+python -m slice3d.cli extract -i stego.obj -k s3cret -n 256
+
+# Recover it AND restore the exact original cover, verifying reversibility
+python -m slice3d.cli extract -i stego.obj -k s3cret -n 256 \
+    --restore restored.obj --original sphere.obj
+# -> prints "restored == original: True (0 vertices differ)"; restored.obj is
+#    byte-identical to sphere.obj, while stego.obj differs (it carries the data)
+```
+
+### Visualise the embedding ROI
+
+See exactly which vertices carry the hidden data — the 3D analogue of an ROI mask
+on a cover image.
+
+```bash
+# As a 3D object: writes an .obj with data-carrying vertices coloured green,
+# viewable in MeshLab / Blender. No extra dependencies.
+slice3d visualize -i sphere.obj -k s3cret -n 256 -m "my secret" -o roi.obj
+
+# As a figure (green dots on the model). Requires: pip install "slice3d[viz]"
+slice3d visualize -i sphere.obj -k s3cret -n 256 -m "my secret" -o roi.png
+```
+
+Size the ROI with `-m MESSAGE`, `-f FILE`, or `-b NBYTES`.
+
+Or from Python:
+
+```python
+from slice3d import Mesh, embed, extract
+
+mesh = Mesh.load("sphere.obj")
+embed(mesh, b"secret bytes", key="s3cret", num_slices=256)
+mesh.save("stego.obj")
+
+received = Mesh.load("stego.obj")
+assert extract(received, key="s3cret", num_slices=256) == b"secret bytes"
+```
 
 ## Development
 
