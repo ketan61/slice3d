@@ -171,12 +171,20 @@ def test_embed_wizard_saves_roi_object_without_a_window(tmp_path, monkeypatch):
 
     monkeypatch.setattr(interactive, "_pick_open_file", lambda title: str(cover))
     saves = iter([str(stego), str(roi)])  # stego save, then ROI object save
-    monkeypatch.setattr(interactive, "_pick_save_file", lambda title, initialfile: next(saves))
+    defaults = []
+
+    def picker(title, initialfile):
+        defaults.append(initialfile)
+        return next(saves)
+
+    monkeypatch.setattr(interactive, "_pick_save_file", picker)
     # slices, message, key, then "yes" to saving the ROI object.
     _feed_inputs(monkeypatch, ["64", "hello", "key", "yes"])
 
     assert run_embed_wizard() == 0
     assert roi.exists()
+    # Default names derive from the object name.
+    assert defaults == ["cover_stego.obj", "cover_roi.obj"]
     roi_mesh = Mesh.loads(roi.read_text())
     # ROI object keeps the geometry and marks carriers green (32 header + 5*8 bits).
     green = sum(1 for v in roi_mesh._vertex_extra.values() if v == "0.000 1.000 0.000")
@@ -189,7 +197,13 @@ def test_extract_wizard_saves_restored_object(tmp_path, monkeypatch):
     restored = tmp_path / "restored.obj"
 
     monkeypatch.setattr(interactive, "_pick_open_file", lambda title: str(stego))
-    monkeypatch.setattr(interactive, "_pick_save_file", lambda title, initialfile: str(restored))
+    defaults = []
+
+    def picker(title, initialfile):
+        defaults.append(initialfile)
+        return str(restored)
+
+    monkeypatch.setattr(interactive, "_pick_save_file", picker)
     # key, slices, save recovered data = no, save restored obj = yes.
     _feed_inputs(monkeypatch, ["pw", "48", "no", "yes"])
 
@@ -199,3 +213,5 @@ def test_extract_wizard_saves_restored_object(tmp_path, monkeypatch):
     cover = tmp_path / "cover.obj"  # the original, written by _make_stego
     assert restored.exists()
     assert diff_vertices(Mesh.load(str(cover)), Mesh.load(str(restored))) == 0
+    # Restored/decoded default name derives from the object name.
+    assert defaults == ["stego_decoded.obj"]

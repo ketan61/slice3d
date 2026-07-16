@@ -181,7 +181,7 @@ def run_embed_wizard() -> int:
         "Save the ROI object (data-carrying vertices in green) as an .obj?",
         {"no": "No", "yes": "Yes"},
     ) == "yes":
-        out = _pick_save_file("Save ROI object as...", "roi.obj")
+        out = _pick_save_file("Save ROI object as...", Path(cover).stem + "_roi.obj")
         if out is None:
             out = input("Path to save ROI object: ").strip().strip('"')
         if out:
@@ -236,11 +236,15 @@ def run_extract_wizard() -> int:
             print(f"saved {len(data)} bytes -> {out}")
 
     # 5. the decoded object -- the restored cover, identical to the input model.
+    #    Default name derives from the object name (dropping a trailing _stego).
+    base = Path(stego).stem
+    if base.endswith("_stego"):
+        base = base[: -len("_stego")]
     print("\nThe cover model has been fully restored (reversible data hiding).")
     if _prompt_choice(
         "Save the restored (decoded) object as an .obj?", {"no": "No", "yes": "Yes"}
     ) == "yes":
-        out = _pick_save_file("Save restored model as...", "restored.obj")
+        out = _pick_save_file("Save restored model as...", base + "_decoded.obj")
         if out is None:
             out = input("Path to save restored model: ").strip().strip('"')
         if out:
