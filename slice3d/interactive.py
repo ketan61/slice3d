@@ -12,7 +12,8 @@ from pathlib import Path
 from typing import Optional
 
 from slice3d.mesh import Mesh
-from slice3d.reversible import capacity_bytes, embed, extract
+from slice3d.reversible import capacity_bytes, data_carrier_indices, embed, extract
+from slice3d.slicer import Z, assign_slices
 
 
 # -- file dialogs (isolated so tests can monkeypatch them) ------------------
@@ -111,7 +112,7 @@ def _ask_input_model(kind: str) -> Optional[str]:
 
 def run_wizard() -> int:
     """Top-level menu: choose whether to hide or extract, then dispatch."""
-    print("=== slice3d :: data hiding in 3D models ===\n")
+    print("=== randomsliced3d :: data hiding in 3D models ===\n")
     action = _prompt_choice(
         "Choose an action",
         {"hide": "Hide a message in a 3D model", "extract": "Extract a hidden message"},
@@ -166,15 +167,26 @@ def run_embed_wizard() -> int:
         output = str(Path(cover).with_name(default_name))
     print(f"output      : {output}")
 
-    # 6. embed and save
+    # 6. work out which slices the key randomly selected (before embedding, while
+    #    mesh still holds the cover coordinates), then embed and save.
+    payload_bytes = len(message.encode("utf-8"))
+    carriers = data_carrier_indices(mesh, key, num_slices, payload_bytes)
+    slice_of = assign_slices(mesh.vertices, num_slices, Z)
+    used_slices = sorted({slice_of[i] for i in carriers})
+
     embed(mesh, message.encode("utf-8"), key=key, num_slices=num_slices)
     mesh.save(output)
 
     print("\nDone! Hidden message embedded.")
-    print("To extract it later, the receiver needs BOTH:")
+    print(
+        f"\nRandomly selected {len(used_slices)} of {num_slices} slices to carry data:"
+    )
+    print(f"  {used_slices}")
+    print(f"({len(carriers)} vertices, chosen randomly within those slices)")
+    print("\nTo extract it later, the receiver needs BOTH:")
     print(f"  key    = {key}")
     print(f"  slices = {num_slices}")
-    print(f"\n  slice3d extract -i \"{output}\" -k \"{key}\" -n {num_slices}")
+    print(f"\n  randomsliced3d extract -i \"{output}\" -k \"{key}\" -n {num_slices}")
 
     # 7. optionally save the ROI as a 3D object (green = data-carrying vertices)
     if _prompt_choice(
@@ -219,12 +231,19 @@ def run_extract_wizard() -> int:
         print(f"\nCould not extract: {exc}")
         return 1
 
-    # 4. show it, and offer to save the raw bytes to a file
+    # 4. show it, plus which slices the data was read from (mesh is now restored
+    #    to the cover, so the carrier slices reproduce the sender's selection)
     try:
         text = data.decode("utf-8")
         print(f"\nRecovered message:\n  {text}")
     except UnicodeDecodeError:
         print(f"\nRecovered {len(data)} bytes of binary data (not UTF-8 text).")
+
+    carriers = data_carrier_indices(mesh, key, num_slices, len(data))
+    slice_of = assign_slices(mesh.vertices, num_slices, Z)
+    used_slices = sorted({slice_of[i] for i in carriers})
+    print(f"\nData was read from {len(used_slices)} randomly selected slices:")
+    print(f"  {used_slices}")
 
     if _prompt_choice("Save recovered data to a file?", {"no": "No", "yes": "Yes"}) == "yes":
         out = _pick_save_file("Save recovered data as...", "recovered.txt")

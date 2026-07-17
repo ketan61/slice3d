@@ -1,9 +1,9 @@
-"""Command-line interface for slice3d.
+"""Command-line interface for randomsliced3d.
 
 Examples:
-    slice3d info    -i model.obj -n 256
-    slice3d embed   -i model.obj -o stego.obj -k s3cret -n 256 -m "hello world"
-    slice3d extract -i stego.obj -k s3cret -n 256
+    randomsliced3d info    -i model.obj -n 256
+    randomsliced3d embed   -i model.obj -o stego.obj -k s3cret -n 256 -m "hello world"
+    randomsliced3d extract -i stego.obj -k s3cret -n 256
 """
 
 from __future__ import annotations
@@ -129,7 +129,7 @@ def _cmd_wizard(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="slice3d", description=__doc__)
+    parser = argparse.ArgumentParser(prog="randomsliced3d", description=__doc__)
     # Running "slice3d" with no subcommand launches the interactive wizard.
     parser.set_defaults(func=_cmd_wizard)
     sub = parser.add_subparsers(dest="command")
