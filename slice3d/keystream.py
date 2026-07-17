@@ -1,17 +1,17 @@
-"""Key-driven embedding path.
+"""Key-driven embedding path (randomsliced3d variant).
 
-The scheme repeatedly picks a random slice and then a random point within it. To
-make extraction *blind*, that sequence must be reproducible by the receiver from
-shared secrets alone. We derive a PRNG seed from ``(key, num_slices)`` and use it
-to build a deterministic permutation of vertex indices:
+Two-stage random selection, both driven by a key-seeded PRNG so the receiver can
+reproduce the exact path for blind extraction:
 
-1. assign every vertex to a slice (depends only on the unmodified slicing axis);
-2. shuffle the points within each slice — "a random point on the plane";
-3. shuffle a visitation list holding each slice once per point it owns — "a random
-   slice each step".
+1. **Random slice selection.** The slices are visited in a key-seeded *random
+   order*. Because the payload fills slices in that order and stops once the data
+   is exhausted, only a random subset of slices actually carries data.
+2. **Random point selection.** Within each selected slice, the X-Y plane vertices
+   are visited in a key-seeded *random order*.
 
-The result visits every vertex exactly once, distributing embedding across slices
-in a key-dependent order that the receiver regenerates identically.
+Concatenating stage 2 over the slices chosen in stage 1 yields a permutation of
+vertex indices. The slicing axis is never modified, so slice assignment — and
+therefore this whole path — is regenerated identically by the receiver.
 """
 
 from __future__ import annotations
@@ -36,7 +36,12 @@ def embedding_order(
     num_slices: int,
     axis: int = Z,
 ) -> List[int]:
-    """Return the key-seeded permutation of vertex indices to embed into."""
+    """Return the key-seeded permutation of vertex indices to embed into.
+
+    Slices are chosen in a random order (stage 1); within each, vertices are
+    chosen in a random order (stage 2). Payload fills this list from the front,
+    so a short message lands in a random subset of slices.
+    """
     slices = assign_slices(vertices, num_slices, axis)
     rng = random.Random(key_seed(key, num_slices))
 
@@ -44,17 +49,14 @@ def embedding_order(
     for index, s in enumerate(slices):
         buckets[s].append(index)
 
-    for bucket in buckets:
-        rng.shuffle(bucket)  # random point order within the slice
+    # Stage 1: randomly select the order in which slices receive data.
+    slice_order = list(range(num_slices))
+    rng.shuffle(slice_order)
 
-    visits: List[int] = []
-    for s, bucket in enumerate(buckets):
-        visits.extend([s] * len(bucket))
-    rng.shuffle(visits)  # random slice to visit at each step
-
-    cursors = [0] * num_slices
+    # Stage 2: within each selected slice, randomly order its X-Y vertices.
     order: List[int] = []
-    for s in visits:
-        order.append(buckets[s][cursors[s]])
-        cursors[s] += 1
+    for s in slice_order:
+        points = buckets[s]
+        rng.shuffle(points)
+        order.extend(points)
     return order
