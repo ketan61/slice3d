@@ -215,3 +215,23 @@ def test_extract_wizard_saves_restored_object(tmp_path, monkeypatch):
     assert diff_vertices(Mesh.load(str(cover)), Mesh.load(str(restored))) == 0
     # Restored/decoded default name derives from the object name.
     assert defaults == ["stego_decoded.obj"]
+
+
+def test_yes_no_prompt_asks_question_before_options(monkeypatch, capsys):
+    labels = []
+
+    def fake_input(prompt=""):
+        labels.append(prompt)
+        return "2"
+
+    monkeypatch.setattr("builtins.input", fake_input)
+    assert interactive._prompt_yes_no("Save it?") is True
+    out = capsys.readouterr().out
+    # question first, then the numbered options, then the input label
+    assert out.index("Save it?") < out.index("1. No") < out.index("2. Yes")
+    assert labels == ["Choose an action: "]
+
+
+def test_yes_no_prompt_no_answer(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda prompt="": "1")
+    assert interactive._prompt_yes_no("Save it?") is False

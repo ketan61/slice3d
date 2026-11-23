@@ -94,6 +94,12 @@ def _prompt_choice(label: str, choices: dict) -> str:
         print(f"  please choose 1-{len(keys)}")
 
 
+def _prompt_yes_no(question: str) -> bool:
+    """Ask a yes/no question: question first, then the options, then the choice."""
+    print(question)
+    return _prompt_choice("Choose an action", {"no": "No", "yes": "Yes"}) == "yes"
+
+
 def _ask_input_model(kind: str) -> Optional[str]:
     """Pick an existing .obj via dialog (fallback: typed path). None on abort."""
     path = _pick_open_file(f"Choose the {kind} 3D model (.obj)")
@@ -189,10 +195,7 @@ def run_embed_wizard() -> int:
     print(f"\n  randomsliced3d extract -i \"{output}\" -k \"{key}\" -n {num_slices}")
 
     # 7. optionally save the ROI as a 3D object (green = data-carrying vertices)
-    if _prompt_choice(
-        "Save the ROI object (data-carrying vertices in green) as an .obj?",
-        {"no": "No", "yes": "Yes"},
-    ) == "yes":
+    if _prompt_yes_no("Save the ROI object (data-carrying vertices in green) as an .obj?"):
         out = _pick_save_file("Save ROI object as...", Path(cover).stem + "_roi.obj")
         if out is None:
             out = input("Path to save ROI object: ").strip().strip('"')
@@ -245,7 +248,7 @@ def run_extract_wizard() -> int:
     print(f"\nData was read from {len(used_slices)} randomly selected slices:")
     print(f"  {used_slices}")
 
-    if _prompt_choice("Save recovered data to a file?", {"no": "No", "yes": "Yes"}) == "yes":
+    if _prompt_yes_no("Save recovered data (the secret message) to a file?"):
         out = _pick_save_file("Save recovered data as...", "recovered.txt")
         if out is None:
             out = input("Path to save recovered data: ").strip().strip('"')
@@ -260,9 +263,7 @@ def run_extract_wizard() -> int:
     if base.endswith("_stego"):
         base = base[: -len("_stego")]
     print("\nThe cover model has been fully restored (reversible data hiding).")
-    if _prompt_choice(
-        "Save the restored (decoded) object as an .obj?", {"no": "No", "yes": "Yes"}
-    ) == "yes":
+    if _prompt_yes_no("Save the restored (decoded) object as an .obj?"):
         out = _pick_save_file("Save restored model as...", base + "_decoded.obj")
         if out is None:
             out = input("Path to save restored model: ").strip().strip('"')
