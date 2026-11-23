@@ -251,11 +251,23 @@ def run_wizard() -> int:
         _hint("Returning to the main menu.")
 
 
-def run_embed_wizard() -> int:
-    """Drive an interactive embed session. Returns a process exit code."""
-    _section("Hide a message")
+_TOO_BIG_MENU = {
+    "shorter": "Type a shorter message",
+    "cover": "Choose a different cover object",
+    "menu": "Go back to the main menu",
+}
 
-    # 1. choose the cover model via file explorer (fallback: typed path)
+_NO_CAPACITY_MENU = {
+    "cover": "Choose a different cover object",
+    "menu": "Go back to the main menu",
+}
+
+
+def _load_cover():
+    """Ask for the cover object, load it and show its details.
+
+    Returns ``(path, mesh, capacity_bytes)``, or None if no model was chosen.
+    """
     _hint(
         "Please select the COVER object: the 3D model (.obj) you want to hide "
         "your secret message in."
@@ -263,8 +275,7 @@ def run_embed_wizard() -> int:
     _hint(_WINDOW_HINT)
     cover = _ask_input_model("cover")
     if cover is None:
-        return 1
-
+        return None
     mesh = Mesh.load(cover)
     max_bytes = capacity_bytes(mesh)
     _ok(f"Cover object loaded: {Path(cover).name}")
@@ -272,13 +283,43 @@ def run_embed_wizard() -> int:
     _detail("vertices", len(mesh))
     _detail("faces", len(mesh.faces))
     _detail("capacity", f"{max_bytes} bytes")
+    return cover, mesh, max_bytes
 
-    if max_bytes <= 0:
+
+def _choose_usable_cover():
+    """Load a cover that can hold data, offering to pick another one if it can't.
+
+    Returns ``(path, mesh, capacity_bytes)``, or None to go back to the menu.
+    """
+    while True:
+        loaded = _load_cover()
+        if loaded is None:
+            return None
+        if loaded[2] > 0:
+            return loaded
         _err(
             "This model cannot hold any data. The reversible scheme needs mesh "
             "connectivity (faces); please pick a denser model that includes faces."
         )
+        print()
+        choice = _prompt_choice(
+            "Choose an action", _NO_CAPACITY_MENU, "What would you like to do?"
+        )
+        if choice == "menu":
+            _hint("No message was hidden.")
+            return None
+        print()
+
+
+def run_embed_wizard() -> int:
+    """Drive an interactive embed session. Returns a process exit code."""
+    _section("Hide a message")
+
+    # 1. choose the cover model via file explorer (fallback: typed path)
+    loaded = _choose_usable_cover()
+    if loaded is None:
         return 1
+    cover, mesh, max_bytes = loaded
 
     # 2. number of slices
     print()
@@ -288,18 +329,38 @@ def run_embed_wizard() -> int:
     )
     num_slices = _prompt_int("Number of slices")
 
-    # 3. the secret message (re-prompt if it will not fit)
+    # 3. the secret message. If it does not fit, let the user shorten it, pick a
+    #    bigger cover object (keeping the message), or go back to the menu.
     print()
     _hint(f"Type the secret message you want to hide (up to {max_bytes} bytes).")
+    message = _prompt_nonempty("Secret message")
     while True:
-        message = _prompt_nonempty("Secret message")
         size = len(message.encode("utf-8"))
         if size <= max_bytes:
             break
         _err(
             f"That message is {size} bytes, but this model can hold only "
-            f"{max_bytes}. Please shorten it."
+            f"{max_bytes}."
         )
+        print()
+        choice = _prompt_choice(
+            "Choose an action", _TOO_BIG_MENU, "What would you like to do?"
+        )
+        print()
+        if choice == "menu":
+            _hint("No message was hidden.")
+            return 1
+        if choice == "shorter":
+            _hint(f"Type a shorter message (up to {max_bytes} bytes).")
+            message = _prompt_nonempty("Secret message")
+            continue
+        # choice == "cover": keep the message and the slice count, swap the model
+        loaded = _choose_usable_cover()
+        if loaded is None:
+            return 1
+        cover, mesh, max_bytes = loaded
+        if size <= max_bytes:
+            _ok(f"Your message ({size} bytes) fits in this cover object.")
 
     # 4. the key (needed by the receiver to extract)
     print()

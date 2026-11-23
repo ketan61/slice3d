@@ -88,7 +88,8 @@ def test_embed_wizard_reprompts_when_message_too_large(tmp_path, monkeypatch):
     cap = capacity_bytes(Mesh.load(str(cover)))
     oversized = "x" * (cap + 5)
     ok = "y" * max(1, cap - 1)
-    _feed_inputs(monkeypatch, ["8", oversized, ok, "key", "no"])
+    # too long -> menu option 1 "Type a shorter message" -> a message that fits
+    _feed_inputs(monkeypatch, ["8", oversized, "1", ok, "key", "no"])
 
     assert run_embed_wizard() == 0
     assert extract(Mesh.load(str(stego)), key="key", num_slices=8) == ok.encode()
@@ -295,3 +296,70 @@ def test_yes_no_prompt_asks_question_before_options(monkeypatch, capsys):
 def test_yes_no_prompt_no_answer(monkeypatch):
     monkeypatch.setattr("builtins.input", lambda prompt="": "1")
     assert interactive._prompt_yes_no("Save it?") is False
+
+
+# -- message too big for the cover ------------------------------------------
+
+def test_too_big_message_can_switch_to_a_bigger_cover(tmp_path, monkeypatch, capsys):
+    small = tmp_path / "small.obj"   # 12x12 sphere: only a few bytes of capacity
+    big = tmp_path / "big.obj"       # 20x20 sphere: about 22 bytes
+    stego = tmp_path / "big_stego.obj"
+    _write_sphere(small, stacks=12, slices=12)
+    _write_sphere(big)
+
+    opens = iter([str(small), str(big)])
+    monkeypatch.setattr(interactive, "_pick_open_file", lambda title: next(opens))
+    defaults = []
+
+    def save(title, initialfile):
+        defaults.append(initialfile)
+        return str(stego)
+
+    monkeypatch.setattr(interactive, "_pick_save_file", save)
+    message = "too long for small"   # 18 bytes
+    # slices, message, menu option 2 "Choose a different cover object",
+    # then (message kept, it fits) key, and no ROI.
+    _feed_inputs(monkeypatch, ["8", message, "2", "key", "no"])
+
+    assert run_embed_wizard() == 0
+    out = capsys.readouterr().out
+    assert "Choose a different cover object" in out
+    assert "fits in this cover object" in out
+    assert defaults[0] == "big_stego.obj"          # named after the NEW cover
+    assert extract(Mesh.load(str(stego)), key="key", num_slices=8) == message.encode()
+
+
+def test_too_big_message_can_go_back_to_the_menu(tmp_path, monkeypatch, capsys):
+    small = tmp_path / "small.obj"
+    stego = tmp_path / "small_stego.obj"
+    _write_sphere(small, stacks=12, slices=12)
+    monkeypatch.setattr(interactive, "_pick_open_file", lambda title: str(small))
+    monkeypatch.setattr(
+        interactive, "_pick_save_file", lambda title, initialfile: str(stego)
+    )
+    # slices, an oversized message, then option 3 "Go back to the main menu"
+    _feed_inputs(monkeypatch, ["8", "x" * 200, "3"])
+
+    assert run_embed_wizard() == 1
+    assert not stego.exists()                      # nothing was hidden or saved
+    assert "No message was hidden" in capsys.readouterr().out
+
+
+def test_empty_capacity_cover_can_switch_to_another(tmp_path, monkeypatch, capsys):
+    tiny = tmp_path / "tiny.obj"     # 6x6 sphere: cannot hold any data
+    big = tmp_path / "big.obj"
+    stego = tmp_path / "big_stego.obj"
+    _write_sphere(tiny, stacks=6, slices=6)
+    _write_sphere(big)
+
+    opens = iter([str(tiny), str(big)])
+    monkeypatch.setattr(interactive, "_pick_open_file", lambda title: next(opens))
+    monkeypatch.setattr(
+        interactive, "_pick_save_file", lambda title, initialfile: str(stego)
+    )
+    # option 1 "Choose a different cover object", then slices, message, key, no ROI
+    _feed_inputs(monkeypatch, ["1", "8", "hi", "k", "no"])
+
+    assert run_embed_wizard() == 0
+    assert "cannot hold any data" in capsys.readouterr().out
+    assert extract(Mesh.load(str(stego)), key="k", num_slices=8) == b"hi"
