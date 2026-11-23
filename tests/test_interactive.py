@@ -363,3 +363,20 @@ def test_empty_capacity_cover_can_switch_to_another(tmp_path, monkeypatch, capsy
     assert run_embed_wizard() == 0
     assert "cannot hold any data" in capsys.readouterr().out
     assert extract(Mesh.load(str(stego)), key="k", num_slices=8) == b"hi"
+
+
+def test_wizard_does_not_reveal_which_slices_carry_data(tmp_path, monkeypatch, capsys):
+    """Neither hiding nor extracting prints the slices used (keeps them secret)."""
+    stego = _make_stego(tmp_path, monkeypatch, "slices stay hidden", "pw", 48)
+    hide_out = capsys.readouterr().out
+
+    monkeypatch.setattr(interactive, "_pick_open_file", lambda title: str(stego))
+    _feed_inputs(monkeypatch, ["pw", "48", "no", "no"])
+    assert run_extract_wizard() == 0
+    extract_out = capsys.readouterr().out
+
+    assert "slices stay hidden" in extract_out          # message still shown
+    for out in (hide_out, extract_out):
+        assert "randomly selected" not in out.lower()
+        assert "slices to carry" not in out
+        assert "read from" not in out

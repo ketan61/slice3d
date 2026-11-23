@@ -20,8 +20,7 @@ from pathlib import Path
 from typing import Optional
 
 from slice3d.mesh import Mesh
-from slice3d.reversible import capacity_bytes, data_carrier_indices, embed, extract
-from slice3d.slicer import Z, assign_slices
+from slice3d.reversible import capacity_bytes, embed, extract
 
 
 # -- terminal styling -------------------------------------------------------
@@ -381,27 +380,14 @@ def run_embed_wizard() -> int:
     if output is None:
         output = str(Path(cover).with_name(default_name))
 
-    # 6. work out which slices the key randomly selected (before embedding, while
-    #    mesh still holds the cover coordinates), then embed and save.
+    # 6. embed and save
     payload = message.encode("utf-8")
-    carriers = data_carrier_indices(mesh, key, num_slices, len(payload))
-    slice_of = assign_slices(mesh.vertices, num_slices, Z)
-    used_slices = sorted({slice_of[i] for i in carriers})
-
     print()
     _hint("Hiding your message ...")
     embed(mesh, payload, key=key, num_slices=num_slices)
     mesh.save(output)
     _ok("Hidden message embedded successfully.")
     _ok(f"Stego object saved -> {output}")
-
-    print()
-    print(_paint(
-        f"Randomly selected {len(used_slices)} of {num_slices} slices to carry data:",
-        "bold",
-    ))
-    print(f"  {used_slices}")
-    print(_paint(f"({len(carriers)} vertices, chosen randomly within those slices)", "dim"))
 
     print()
     print(_paint("To extract it later, the receiver needs BOTH:", "bold"))
@@ -465,23 +451,13 @@ def run_extract_wizard() -> int:
         )
         return 1
 
-    # 4. show it, plus which slices the data was read from (mesh is now restored
-    #    to the cover, so the carrier slices reproduce the sender's selection)
+    # 4. show the recovered message
     try:
         text = data.decode("utf-8")
         _ok("Recovered message:")
         print("  " + _paint(text, "bold"))
     except UnicodeDecodeError:
         _ok(f"Recovered {len(data)} bytes of binary data (not UTF-8 text).")
-
-    carriers = data_carrier_indices(mesh, key, num_slices, len(data))
-    slice_of = assign_slices(mesh.vertices, num_slices, Z)
-    used_slices = sorted({slice_of[i] for i in carriers})
-    print()
-    print(_paint(
-        f"Data was read from {len(used_slices)} randomly selected slices:", "bold"
-    ))
-    print(f"  {used_slices}")
 
     print()
     if _prompt_yes_no("Save recovered data (the secret message) to a file?"):
