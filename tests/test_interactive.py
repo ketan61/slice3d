@@ -105,11 +105,71 @@ def test_run_wizard_menu_dispatches_to_embed(tmp_path, monkeypatch):
     monkeypatch.setattr(
         interactive, "_pick_save_file", lambda title, initialfile: str(stego)
     )
-    # First answer picks "hide" from the menu, then the embed prompts follow.
-    _feed_inputs(monkeypatch, ["hide", "64", "menu works", "kk", "no"])
+    # First answer picks "hide" from the menu, then the embed prompts follow;
+    # the wizard then returns to the menu, where "exit" ends it.
+    _feed_inputs(monkeypatch, ["hide", "64", "menu works", "kk", "no", "exit"])
 
     assert run_wizard() == 0
     assert extract(Mesh.load(str(stego)), key="kk", num_slices=64) == b"menu works"
+
+
+def test_run_wizard_announces_start_and_asks_what_to_do(monkeypatch, capsys):
+    _feed_inputs(monkeypatch, ["3"])  # option 3 = Exit
+    assert run_wizard() == 0
+    out = capsys.readouterr().out
+    assert "randomsliced3d has started" in out
+    # the question comes before the numbered options
+    assert out.index("What would you like to do?") < out.index("1. Hide a message")
+    assert "3. Exit" in out
+    assert "Goodbye" in out
+
+
+def test_run_wizard_loops_back_to_the_menu(tmp_path, monkeypatch, capsys):
+    """Hide, then extract in the same session, then exit."""
+    cover = tmp_path / "cover.obj"
+    stego = tmp_path / "cover_stego.obj"
+    _write_sphere(cover)
+
+    opens = iter([str(cover), str(stego)])  # cover for hide, stego for extract
+    monkeypatch.setattr(interactive, "_pick_open_file", lambda title: next(opens))
+    monkeypatch.setattr(
+        interactive, "_pick_save_file", lambda title, initialfile: str(stego)
+    )
+    _feed_inputs(monkeypatch, [
+        "1", "64", "loop works", "kk", "no",   # hide; don't save the ROI
+        "2", "kk", "64", "no", "no",           # extract; don't save anything
+        "3",                                   # exit
+    ])
+
+    assert run_wizard() == 0
+    out = capsys.readouterr().out
+    assert out.count("What would you like to do?") == 3  # menu shown 3 times
+    assert "loop works" in out                            # message came back
+    assert "Returning to the main menu" in out
+
+
+def test_wizard_tells_the_user_which_object_to_select(tmp_path, monkeypatch, capsys):
+    stego = _make_stego(tmp_path, monkeypatch, "hint test", "pw", 48)
+    hide_out = capsys.readouterr().out
+    assert "select the COVER object" in hide_out
+
+    monkeypatch.setattr(interactive, "_pick_open_file", lambda title: str(stego))
+    _feed_inputs(monkeypatch, ["pw", "48", "no", "no"])
+    assert run_extract_wizard() == 0
+    assert "select the STEGO object" in capsys.readouterr().out
+
+
+def test_output_is_plain_when_not_a_terminal(monkeypatch, capsys):
+    _feed_inputs(monkeypatch, ["exit"])
+    run_wizard()
+    assert "\033[" not in capsys.readouterr().out  # no colour codes in captured output
+
+
+def test_paint_adds_colour_on_a_terminal(monkeypatch):
+    monkeypatch.setattr(interactive, "_color_on", lambda: True)
+    assert interactive._paint("hi", "green") == "\033[32mhi\033[0m"
+    monkeypatch.setattr(interactive, "_color_on", lambda: False)
+    assert interactive._paint("hi", "green") == "hi"
 
 
 # -- extract wizard ---------------------------------------------------------

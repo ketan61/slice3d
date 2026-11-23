@@ -1,19 +1,116 @@
-"""Interactive embedding wizard.
+"""Interactive wizard for randomsliced3d.
 
-Guides a user through hiding a message without needing to remember CLI flags:
-a native file-explorer dialog to choose the cover model, then terminal prompts
-for the slice count, the secret message and the key. Falls back to typed paths
-if a graphical file dialog is unavailable (e.g. headless environments).
+Guides a user through hiding or extracting a message without needing to
+remember CLI flags. The wizard announces that it has started, asks what the
+user wants to do, and explains every step in plain words (which object to
+select, what the slice count and the key are for). A native file-explorer
+dialog picks the models, with a typed path as a fallback when no graphical
+dialog is available. After each operation it returns to the main menu until the
+user chooses Exit.
+
+Output is coloured only on a real terminal; when stdout is captured or piped
+(tests, logs) or the ``NO_COLOR`` environment variable is set, the text is plain.
 """
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Optional
 
 from slice3d.mesh import Mesh
 from slice3d.reversible import capacity_bytes, data_carrier_indices, embed, extract
 from slice3d.slicer import Z, assign_slices
+
+
+# -- terminal styling -------------------------------------------------------
+
+_ANSI = {
+    "bold": "1", "dim": "2", "red": "31", "green": "32", "yellow": "33",
+    "blue": "34", "magenta": "35", "cyan": "36",
+}
+
+
+def _color_on() -> bool:
+    """Colour only on an interactive terminal, and never when NO_COLOR is set."""
+    if os.environ.get("NO_COLOR"):
+        return False
+    try:
+        return sys.stdout.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
+def _enable_windows_ansi() -> None:
+    """Turn on ANSI colour processing in the Windows console (no-op elsewhere)."""
+    if os.name != "nt":
+        return
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+        mode = ctypes.c_uint32()
+        if kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            kernel32.SetConsoleMode(handle, mode.value | 0x0004)  # VT processing
+    except Exception:
+        pass
+
+
+def _paint(text: str, *styles: str) -> str:
+    if not styles or not _color_on():
+        return text
+    codes = ";".join(_ANSI[s] for s in styles)
+    return f"\033[{codes}m{text}\033[0m"
+
+
+def _sym(fancy: str, plain: str) -> str:
+    """A Unicode symbol if stdout can print it, else an ASCII stand-in."""
+    encoding = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        fancy.encode(encoding)
+        return fancy
+    except (UnicodeEncodeError, LookupError):
+        return plain
+
+
+def _ok(msg: str) -> None:
+    print(_paint(f"{_sym('✓', '[ok]')} {msg}", "green"))
+
+
+def _err(msg: str) -> None:
+    print(_paint(f"{_sym('✗', '[!]')} {msg}", "red"))
+
+
+def _hint(msg: str) -> None:
+    """A plain-language instruction telling the user what to do next."""
+    print(_paint(f"{_sym('→', '->')} {msg}", "cyan"))
+
+
+def _detail(label: str, value) -> None:
+    print(f"    {_paint(f'{label:<9}', 'dim')}: {value}")
+
+
+def _section(title: str) -> None:
+    bar = _sym("─", "-") * 6
+    print()
+    print(_paint(f"{bar} {title} {bar}", "bold", "magenta"))
+    print()
+
+
+def _banner() -> None:
+    width = 44
+    if _sym("╔═║╚", "") == "╔═║╚":
+        top, bottom, side = "╔" + "═" * width + "╗", "╚" + "═" * width + "╝", "║"
+    else:
+        top = bottom = "+" + "-" * width + "+"
+        side = "|"
+    frame = lambda s: _paint(s, "cyan", "bold")  # noqa: E731
+    print(frame(top))
+    print(frame(side) + "  " + _paint("randomsliced3d".ljust(width - 2), "bold") + frame(side))
+    print(frame(side) + "  " + "Reversible data hiding in 3D models".ljust(width - 2) + frame(side))
+    print(frame(bottom))
 
 
 # -- file dialogs (isolated so tests can monkeypatch them) ------------------
@@ -58,216 +155,295 @@ def _pick_save_file(title: str, initialfile: str) -> Optional[str]:
 
 # -- prompt helpers ---------------------------------------------------------
 
+def _ask(label: str) -> str:
+    return input(_paint(f"{label}: ", "yellow", "bold"))
+
+
 def _prompt_int(label: str, minimum: int = 1) -> int:
     while True:
-        raw = input(f"{label}: ").strip()
+        raw = _ask(label).strip()
         try:
             value = int(raw)
         except ValueError:
-            print(f"  please enter a whole number (>= {minimum})")
+            _err(f"Please enter a whole number (>= {minimum}).")
             continue
         if value < minimum:
-            print(f"  value must be at least {minimum}")
+            _err(f"The value must be at least {minimum}.")
             continue
         return value
 
 
 def _prompt_nonempty(label: str) -> str:
     while True:
-        value = input(f"{label}: ")
+        value = _ask(label)
         if value.strip():
             return value
-        print("  this cannot be empty")
+        _err("This cannot be empty.")
 
 
-def _prompt_choice(label: str, choices: dict) -> str:
-    """Prompt until the user picks one of the numbered ``choices`` keys."""
+def _prompt_choice(label: str, choices: dict, question: Optional[str] = None) -> str:
+    """Print the question (if any), then the numbered choices, then ask for one."""
+    if question:
+        print(_paint(question, "bold"))
     keys = list(choices)
     for i, key in enumerate(keys, 1):
-        print(f"  {i}. {choices[key]}")
+        print(f"  {_paint(f'{i}.', 'cyan', 'bold')} {choices[key]}")
     while True:
-        raw = input(f"{label}: ").strip()
+        raw = _ask(label).strip()
         if raw in keys:
             return raw
         if raw.isdigit() and 1 <= int(raw) <= len(keys):
             return keys[int(raw) - 1]
-        print(f"  please choose 1-{len(keys)}")
+        _err(f"Please choose a number from 1 to {len(keys)}.")
 
 
 def _prompt_yes_no(question: str) -> bool:
     """Ask a yes/no question: question first, then the options, then the choice."""
-    print(question)
-    return _prompt_choice("Choose an action", {"no": "No", "yes": "Yes"}) == "yes"
+    return _prompt_choice("Choose an action", {"no": "No", "yes": "Yes"}, question) == "yes"
 
 
 def _ask_input_model(kind: str) -> Optional[str]:
     """Pick an existing .obj via dialog (fallback: typed path). None on abort."""
     path = _pick_open_file(f"Choose the {kind} 3D model (.obj)")
     if path is None:
-        path = input(f"Path to {kind} .obj model: ").strip().strip('"')
+        path = _ask(f"Path to {kind} .obj model").strip().strip('"')
     if not path:
-        print("No model chosen. Aborting.")
+        _err("No model was chosen.")
         return None
     if not Path(path).is_file():
-        print(f"error: file not found: {path}")
+        _err(f"File not found: {path}")
         return None
     return path
 
 
+_WINDOW_HINT = (
+    "A file window will open. If you don't see it, check the taskbar; "
+    "it can open behind VS Code."
+)
+
+
 # -- wizard -----------------------------------------------------------------
 
+_MENU = {
+    "hide": "Hide a message in a 3D model",
+    "extract": "Extract a hidden message",
+    "exit": "Exit",
+}
+
+
 def run_wizard() -> int:
-    """Top-level menu: choose whether to hide or extract, then dispatch."""
-    print("=== randomsliced3d :: data hiding in 3D models ===\n")
-    action = _prompt_choice(
-        "Choose an action",
-        {"hide": "Hide a message in a 3D model", "extract": "Extract a hidden message"},
-    )
-    print()
-    if action == "extract":
-        return run_extract_wizard()
-    return run_embed_wizard()
+    """Announce the tool, then loop: ask what to do, run it, come back."""
+    _enable_windows_ansi()
+    _banner()
+    _ok("randomsliced3d has started.")
+    while True:
+        print()
+        action = _prompt_choice("Choose an action", _MENU, "What would you like to do?")
+        if action == "exit":
+            print()
+            _ok("Goodbye! randomsliced3d has closed.")
+            return 0
+        if action == "extract":
+            run_extract_wizard()
+        else:
+            run_embed_wizard()
+        print()
+        _hint("Returning to the main menu.")
 
 
 def run_embed_wizard() -> int:
     """Drive an interactive embed session. Returns a process exit code."""
-    print("--- Hide a message ---\n")
+    _section("Hide a message")
 
     # 1. choose the cover model via file explorer (fallback: typed path)
+    _hint(
+        "Please select the COVER object: the 3D model (.obj) you want to hide "
+        "your secret message in."
+    )
+    _hint(_WINDOW_HINT)
     cover = _ask_input_model("cover")
     if cover is None:
         return 1
-    print(f"cover model : {cover}")
 
     mesh = Mesh.load(cover)
     max_bytes = capacity_bytes(mesh)
-    print(f"vertices    : {len(mesh)}")
-    print(f"faces       : {len(mesh.faces)}")
-    print(f"capacity    : {max_bytes} bytes\n")
+    _ok(f"Cover object loaded: {Path(cover).name}")
+    _detail("file", cover)
+    _detail("vertices", len(mesh))
+    _detail("faces", len(mesh.faces))
+    _detail("capacity", f"{max_bytes} bytes")
 
     if max_bytes <= 0:
-        print(
-            "error: no capacity. The reversible scheme needs mesh connectivity "
-            "(faces); pick a denser model that includes faces."
+        _err(
+            "This model cannot hold any data. The reversible scheme needs mesh "
+            "connectivity (faces); please pick a denser model that includes faces."
         )
         return 1
 
     # 2. number of slices
+    print()
+    _hint(
+        "How many slices should the model be cut into along the Z axis? "
+        "(for example 256 or 512)"
+    )
     num_slices = _prompt_int("Number of slices")
 
     # 3. the secret message (re-prompt if it will not fit)
+    print()
+    _hint(f"Type the secret message you want to hide (up to {max_bytes} bytes).")
     while True:
         message = _prompt_nonempty("Secret message")
         size = len(message.encode("utf-8"))
         if size <= max_bytes:
             break
-        print(f"  message is {size} bytes but capacity is {max_bytes}; shorten it")
+        _err(
+            f"That message is {size} bytes, but this model can hold only "
+            f"{max_bytes}. Please shorten it."
+        )
 
     # 4. the key (needed by the receiver to extract)
+    print()
+    _hint(
+        "Choose a secret key. The receiver will need this exact key and the "
+        "same number of slices to extract the message."
+    )
     key = _prompt_nonempty("Secret key")
 
     # 5. where to save the stego model
+    print()
+    _hint(
+        "Now choose where to save the STEGO object: the 3D model that will "
+        "carry your hidden message."
+    )
     default_name = Path(cover).stem + "_stego.obj"
     output = _pick_save_file("Save the stego model as...", default_name)
     if output is None:
         output = str(Path(cover).with_name(default_name))
-    print(f"output      : {output}")
 
     # 6. work out which slices the key randomly selected (before embedding, while
     #    mesh still holds the cover coordinates), then embed and save.
-    payload_bytes = len(message.encode("utf-8"))
-    carriers = data_carrier_indices(mesh, key, num_slices, payload_bytes)
+    payload = message.encode("utf-8")
+    carriers = data_carrier_indices(mesh, key, num_slices, len(payload))
     slice_of = assign_slices(mesh.vertices, num_slices, Z)
     used_slices = sorted({slice_of[i] for i in carriers})
 
-    embed(mesh, message.encode("utf-8"), key=key, num_slices=num_slices)
+    print()
+    _hint("Hiding your message ...")
+    embed(mesh, payload, key=key, num_slices=num_slices)
     mesh.save(output)
+    _ok("Hidden message embedded successfully.")
+    _ok(f"Stego object saved -> {output}")
 
-    print("\nDone! Hidden message embedded.")
-    print(
-        f"\nRandomly selected {len(used_slices)} of {num_slices} slices to carry data:"
-    )
+    print()
+    print(_paint(
+        f"Randomly selected {len(used_slices)} of {num_slices} slices to carry data:",
+        "bold",
+    ))
     print(f"  {used_slices}")
-    print(f"({len(carriers)} vertices, chosen randomly within those slices)")
-    print("\nTo extract it later, the receiver needs BOTH:")
-    print(f"  key    = {key}")
-    print(f"  slices = {num_slices}")
-    print(f"\n  randomsliced3d extract -i \"{output}\" -k \"{key}\" -n {num_slices}")
+    print(_paint(f"({len(carriers)} vertices, chosen randomly within those slices)", "dim"))
+
+    print()
+    print(_paint("To extract it later, the receiver needs BOTH:", "bold"))
+    _detail("key", key)
+    _detail("slices", num_slices)
+    print(_paint(f'  randomsliced3d extract -i "{output}" -k "{key}" -n {num_slices}', "dim"))
 
     # 7. optionally save the ROI as a 3D object (green = data-carrying vertices)
+    print()
     if _prompt_yes_no("Save the ROI object (data-carrying vertices in green) as an .obj?"):
         out = _pick_save_file("Save ROI object as...", Path(cover).stem + "_roi.obj")
         if out is None:
-            out = input("Path to save ROI object: ").strip().strip('"')
+            out = _ask("Path to save ROI object").strip().strip('"')
         if out:
             from slice3d.visualize import export_roi_obj
 
             # Compute the ROI on the original cover (reloaded from disk), whose
             # prediction errors define which vertices carry data.
-            export_roi_obj(
-                Mesh.load(cover), key, num_slices, len(message.encode("utf-8")), out
-            )
-            print(f"saved ROI object -> {out}")
+            export_roi_obj(Mesh.load(cover), key, num_slices, len(payload), out)
+            _ok(f"ROI object saved -> {out}")
     return 0
 
 
 def run_extract_wizard() -> int:
     """Drive an interactive extract session. Returns a process exit code."""
-    print("--- Extract a hidden message ---\n")
+    _section("Extract a hidden message")
 
     # 1. choose the stego model
+    _hint(
+        "Please select the STEGO object: the 3D model (.obj) that contains the "
+        "hidden message."
+    )
+    _hint(_WINDOW_HINT)
     stego = _ask_input_model("stego")
     if stego is None:
         return 1
-    print(f"stego model : {stego}")
 
     mesh = Mesh.load(stego)
+    _ok(f"Stego object loaded: {Path(stego).name}")
+    _detail("file", stego)
+    _detail("vertices", len(mesh))
 
     # 2. the key and slice count used at embedding time
+    print()
+    _hint("Enter the secret key that was used when the message was hidden.")
     key = _prompt_nonempty("Secret key")
+    print()
+    _hint("Enter the number of slices that was used when the message was hidden.")
     num_slices = _prompt_int("Number of slices")
 
     # 3. recover the payload; extract() also restores the cover in place.
+    print()
+    _hint("Extracting the message and restoring the original model ...")
     try:
         data = extract(mesh, key=key, num_slices=num_slices)
     except ValueError as exc:
-        print(f"\nCould not extract: {exc}")
+        _err(f"Could not extract: {exc}")
+        _hint(
+            "Check that the key and the number of slices are exactly the ones "
+            "used when the message was hidden."
+        )
         return 1
 
     # 4. show it, plus which slices the data was read from (mesh is now restored
     #    to the cover, so the carrier slices reproduce the sender's selection)
     try:
         text = data.decode("utf-8")
-        print(f"\nRecovered message:\n  {text}")
+        _ok("Recovered message:")
+        print("  " + _paint(text, "bold"))
     except UnicodeDecodeError:
-        print(f"\nRecovered {len(data)} bytes of binary data (not UTF-8 text).")
+        _ok(f"Recovered {len(data)} bytes of binary data (not UTF-8 text).")
 
     carriers = data_carrier_indices(mesh, key, num_slices, len(data))
     slice_of = assign_slices(mesh.vertices, num_slices, Z)
     used_slices = sorted({slice_of[i] for i in carriers})
-    print(f"\nData was read from {len(used_slices)} randomly selected slices:")
+    print()
+    print(_paint(
+        f"Data was read from {len(used_slices)} randomly selected slices:", "bold"
+    ))
     print(f"  {used_slices}")
 
+    print()
     if _prompt_yes_no("Save recovered data (the secret message) to a file?"):
         out = _pick_save_file("Save recovered data as...", "recovered.txt")
         if out is None:
-            out = input("Path to save recovered data: ").strip().strip('"')
+            out = _ask("Path to save recovered data").strip().strip('"')
         if out:
             with open(out, "wb") as fh:
                 fh.write(data)
-            print(f"saved {len(data)} bytes -> {out}")
+            _ok(f"Secret message saved ({len(data)} bytes) -> {out}")
 
     # 5. the decoded object -- the restored cover, identical to the input model.
     #    Default name derives from the object name (dropping a trailing _stego).
     base = Path(stego).stem
     if base.endswith("_stego"):
         base = base[: -len("_stego")]
-    print("\nThe cover model has been fully restored (reversible data hiding).")
+    print()
+    _ok("The cover model has been fully restored (reversible data hiding).")
     if _prompt_yes_no("Save the restored (decoded) object as an .obj?"):
         out = _pick_save_file("Save restored model as...", base + "_decoded.obj")
         if out is None:
-            out = input("Path to save restored model: ").strip().strip('"')
+            out = _ask("Path to save restored model").strip().strip('"')
         if out:
             mesh.save(out)
-            print(f"saved restored model -> {out}")
+            _ok(f"Decoded object saved -> {out}")
     return 0
